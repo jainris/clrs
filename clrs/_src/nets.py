@@ -17,12 +17,13 @@
 
 import functools
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, NamedTuple
 
 import chex
 
 from clrs._src import decoders
 from clrs._src import encoders
+from clrs._src import memory
 from clrs._src import probing
 from clrs._src import processors
 from clrs._src import samplers
@@ -42,14 +43,14 @@ _Spec = specs.Spec
 _Stage = specs.Stage
 _Trajectory = samplers.Trajectory
 _Type = specs.Type
-
+MemoryState = NamedTuple
 
 @chex.dataclass
 class _MessagePassingScanState:
   hint_preds: chex.Array
   output_preds: chex.Array
   hiddens: chex.Array
-  lstm_state: Optional[hk.LSTMState]
+  mem_state: Optional[MemoryState]
 
 
 @chex.dataclass
@@ -162,9 +163,9 @@ class Net(hk.Module):
             probing.DataPoint(
                 name=hint.name, location=loc, type_=typ, data=hint_data))
 
-    hiddens, output_preds_cand, hint_preds, lstm_state = self._one_step_pred(
+    hiddens, output_preds_cand, hint_preds, mem_state = self._one_step_pred(
         inputs, cur_hint, mp_state.hiddens,
-        batch_size, nb_nodes, mp_state.lstm_state,
+        batch_size, nb_nodes, mp_state.mem_state,
         spec, encs, decs, repred)
 
     if first_step:
@@ -181,12 +182,12 @@ class Net(hk.Module):
         hint_preds=hint_preds,
         output_preds=output_preds,
         hiddens=hiddens,
-        lstm_state=lstm_state)
+        mem_state=mem_state)
     # Save memory by not stacking unnecessary fields
     accum_mp_state = _MessagePassingScanState(
         hint_preds=hint_preds if return_hints else None,
         output_preds=output_preds if return_all_outputs else None,
-        hiddens=None, lstm_state=None)
+        hiddens=None, mem_state=None)
 
     # Complying to jax.scan, the first returned value is the state we carry over
     # the second value is the output that will be stacked over steps.
@@ -235,13 +236,9 @@ class Net(hk.Module):
 
     # Optionally construct LSTM.
     if self.use_lstm:
-      self.lstm = hk.LSTM(
-          hidden_size=self.hidden_dim,
-          name='processor_lstm')
-      lstm_init = self.lstm.initial_state
+      self.memory_module = memory.LSTMModule(hidden_size=self.hidden_dim)
     else:
-      self.lstm = None
-      lstm_init = lambda x: 0
+      self.memory_module = None
 
     for algorithm_index, features in zip(algorithm_indices, features_list):
       inputs = features.inputs
@@ -254,16 +251,13 @@ class Net(hk.Module):
       hiddens = jnp.zeros((batch_size, nb_nodes, self.hidden_dim))
 
       if self.use_lstm:
-        lstm_state = lstm_init(batch_size * nb_nodes)
-        lstm_state = jax.tree_util.tree_map(
-            lambda x, b=batch_size, n=nb_nodes: jnp.reshape(x, [b, n, -1]),
-            lstm_state)
+        mem_state = self.memory_module.initial_state(batch_size=batch_size, nb_nodes=nb_nodes, hiddens=hiddens)
       else:
-        lstm_state = None
+        mem_state = None
 
       mp_state = _MessagePassingScanState(
           hint_preds=None, output_preds=None,
-          hiddens=hiddens, lstm_state=lstm_state)
+          hiddens=hiddens, mem_state=mem_state)
 
       # Do the first step outside of the scan because it has a different
       # computation graph.
@@ -362,7 +356,7 @@ class Net(hk.Module):
       hidden: _Array,
       batch_size: int,
       nb_nodes: int,
-      lstm_state: Optional[hk.LSTMState],
+      mem_state: Optional[MemoryState],
       spec: _Spec,
       encs: Dict[str, List[hk.Module]],
       decs: Dict[str, Tuple[hk.Module]],
@@ -413,11 +407,11 @@ class Net(hk.Module):
       nxt_hidden = hk.dropout(hk.next_rng_key(), self._dropout_prob, nxt_hidden)
 
     if self.use_lstm:
-      # lstm doesn't accept multiple batch dimensions (in our case, batch and
-      # nodes), so we vmap over the (first) batch dimension.
-      nxt_hidden, nxt_lstm_state = jax.vmap(self.lstm)(nxt_hidden, lstm_state)
+      nxt_hidden, nxt_mem_state = self.memory_module(
+        nxt_hidden=nxt_hidden, cur_mem_state=mem_state
+      )
     else:
-      nxt_lstm_state = None
+      nxt_mem_state = None
 
     h_t = jnp.concatenate([node_fts, hidden, nxt_hidden], axis=-1)
     if nxt_edge is not None:
@@ -439,7 +433,7 @@ class Net(hk.Module):
         repred=repred,
     )
 
-    return nxt_hidden, output_preds, hint_preds, nxt_lstm_state
+    return nxt_hidden, output_preds, hint_preds, nxt_mem_state
 
 
 class NetChunked(Net):
