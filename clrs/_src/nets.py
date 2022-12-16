@@ -236,7 +236,13 @@ class Net(hk.Module):
 
     # Optionally construct LSTM.
     if self.use_lstm:
-      self.memory_module = memory.LSTMModule(hidden_size=self.hidden_dim)
+      # self.memory_module = memory.LSTMModule(hidden_size=self.hidden_dim)
+      self.memory_size = 20 # TODO: Expose as an option
+      self.memory_module = memory.NeuralStackMemoryModule(
+        num_units=self.hidden_dim,
+        embedding_size=self.hidden_dim,
+        memory_size=self.memory_size,
+        )
     else:
       self.memory_module = None
 
