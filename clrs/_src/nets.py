@@ -79,7 +79,7 @@ class Net(hk.Module):
       encode_hints: bool,
       decode_hints: bool,
       processor_factory: processors.ProcessorFactory,
-      use_post_mp_memory: Optional[str],
+      use_post_mp_memory: str,
       encoder_init: str,
       dropout_prob: float,
       hint_teacher_forcing: float,
@@ -235,7 +235,7 @@ class Net(hk.Module):
     self.processor = self.processor_factory(self.hidden_dim)
 
     # Optionally construct memory module
-    if self.use_post_mp_memory is not None:
+    if self.use_post_mp_memory != "none":
       if self.use_post_mp_memory == "lstm":
         self.memory_module = memory.LSTMModule(hidden_size=self.hidden_dim)
       elif self.use_post_mp_memory == "stack":
@@ -258,7 +258,7 @@ class Net(hk.Module):
       nb_mp_steps = max(1, hints[0].data.shape[0] - 1)
       hiddens = jnp.zeros((batch_size, nb_nodes, self.hidden_dim))
 
-      if self.use_post_mp_memory is not None:
+      if self.use_post_mp_memory != "none":
         mem_state = self.memory_module.initial_state(batch_size=batch_size, nb_nodes=nb_nodes, hiddens=hiddens)
       else:
         mem_state = None
@@ -414,7 +414,7 @@ class Net(hk.Module):
     if not repred:      # dropout only on training
       nxt_hidden = hk.dropout(hk.next_rng_key(), self._dropout_prob, nxt_hidden)
 
-    if self.use_post_mp_memory is not None:
+    if self.use_post_mp_memory != "none":
       nxt_hidden, nxt_mem_state = self.memory_module(
         nxt_hidden=nxt_hidden, cur_mem_state=mem_state
       )

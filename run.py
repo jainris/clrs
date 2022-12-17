@@ -95,9 +95,9 @@ flags.DEFINE_enum('hint_repred_mode', 'soft', ['soft', 'hard', 'hard_on_eval'],
                   'used for training and hard mode is used for evaluation.')
 flags.DEFINE_boolean('use_ln', True,
                      'Whether to use layer normalisation in the processor.')
-flags.DEFINE_string('use_post_mp_memory', None,
-                    ['lstm', 'stack'],
-                    'Which memory module to insert after message passing.')
+flags.DEFINE_string('use_post_mp_memory', 'none',
+                    'Which memory module to insert after message passing. Possible' +
+                    'options: [none, lstm, stack]')
 flags.DEFINE_integer('nb_triplet_fts', 8,
                      'How many triplet features to compute?')
 
