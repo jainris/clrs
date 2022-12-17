@@ -1,0 +1,6 @@
+Baseline
+--------
+Algo bfs step 29999 current loss 0.000131, current_train_items 960000.
+(val) algo bfs step 29500: {'pi': 1.0, 'score': 1.0, 'examples_seen': 944032, 'step': 29500, 'algorithm': 'bfs'} (not saved)
+(test) algo bfs : {'pi': 0.99658203125, 'score': 0.99658203125, 'examples_seen': 960000, 'step': 30000, 'algorithm': 'bfs'}
+

@@ -144,7 +144,7 @@ class BaselineModel(model.Model):
       encode_hints: bool = False,
       decode_hints: bool = True,
       encoder_init: str = 'default',
-      use_lstm: bool = False,
+      use_post_mp_memory: str = None,
       learning_rate: float = 0.005,
       grad_clip_max_norm: float = 0.0,
       checkpoint_path: str = '/tmp/clrs3',
@@ -175,7 +175,7 @@ class BaselineModel(model.Model):
       encode_hints: Whether to provide hints as model inputs.
       decode_hints: Whether to provide hints as model outputs.
       encoder_init: The initialiser type to use for the encoders.
-      use_lstm: Whether to insert an LSTM after message passing.
+      use_post_mp_memory: Which memory module to insert after message passing.
       learning_rate: Learning rate for training.
       grad_clip_max_norm: if greater than 0, the maximum norm of the gradients.
       checkpoint_path: Path for loading/saving checkpoints.
@@ -237,7 +237,7 @@ class BaselineModel(model.Model):
         nb_dims[outp.name] = outp.data.shape[-1]
       self.nb_dims.append(nb_dims)
 
-    self._create_net_fns(hidden_dim, encode_hints, processor_factory, use_lstm,
+    self._create_net_fns(hidden_dim, encode_hints, processor_factory, use_post_mp_memory,
                          encoder_init, dropout_prob, hint_teacher_forcing,
                          hint_repred_mode)
     self._device_params = None
@@ -245,11 +245,11 @@ class BaselineModel(model.Model):
     self.opt_state_skeleton = None
 
   def _create_net_fns(self, hidden_dim, encode_hints, processor_factory,
-                      use_lstm, encoder_init, dropout_prob,
+                      use_post_mp_memory, encoder_init, dropout_prob,
                       hint_teacher_forcing, hint_repred_mode):
     def _use_net(*args, **kwargs):
       return nets.Net(self._spec, hidden_dim, encode_hints, self.decode_hints,
-                      processor_factory, use_lstm, encoder_init,
+                      processor_factory, use_post_mp_memory, encoder_init,
                       dropout_prob, hint_teacher_forcing,
                       hint_repred_mode,
                       self.nb_dims, self.nb_msg_passing_steps)(*args, **kwargs)
