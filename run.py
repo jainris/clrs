@@ -95,9 +95,9 @@ flags.DEFINE_enum('hint_repred_mode', 'soft', ['soft', 'hard', 'hard_on_eval'],
                   'used for training and hard mode is used for evaluation.')
 flags.DEFINE_boolean('use_ln', True,
                      'Whether to use layer normalisation in the processor.')
-flags.DEFINE_string('use_post_mp_memory', 'none',
-                    'Which memory module to insert after message passing. Possible' +
-                    'options: [none, lstm, stack]')
+flags.DEFINE_enum('use_post_mp_memory', 'none',
+                  ['none', 'lstm', 'stack'],
+                  'Which memory module to insert after message passing.')
 flags.DEFINE_integer('nb_triplet_fts', 8,
                      'How many triplet features to compute?')
 
@@ -111,6 +111,9 @@ flags.DEFINE_enum('processor_type', 'triplet_mpnn',
                    'gpgn', 'gpgn_mask', 'gmpnn',
                    'triplet_gpgn', 'triplet_gpgn_mask', 'triplet_gmpnn'],
                   'Processor type to use as the network P.')
+flags.DEFINE_enum('processor_memory', 'none',
+                  ['none', 'stack'],
+                  'Which memory module to use with the processor.')
 
 flags.DEFINE_string('checkpoint_path', '/tmp/CLRS30',
                     'Path in which checkpoints are saved.')

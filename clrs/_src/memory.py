@@ -105,7 +105,7 @@ class NeuralStackMemoryModuleState(NamedTuple):
     memory_values: _Array
     read_strengths: _Array
     write_mask: _Array
-    controller_hidden_state: _Array
+    controller_hidden_state: Optional[_Array]
     read_values: _Array
 
 
@@ -297,3 +297,135 @@ class NeuralStackMemoryModule(MemoryModule):
     #         cur_mem_state.stack_state.write_mask,
     #     )
     #     return nxt_hidden, nxt_mem_state
+
+
+class MLPStackMemory(MemoryModule):
+    def __init__(
+        self,
+        output_size: int,
+        embedding_size: int,
+        memory_size: int,
+        name: str = "neural_stack_mlp",
+    ):
+        super().__init__(name=name)
+        self._output_size = output_size
+        self._embedding_size = embedding_size
+        self._memory_size = memory_size
+
+        self.stack = NeuralStackCell(
+            embedding_size=embedding_size,
+            memory_size=memory_size,
+            num_read_heads=1,
+            num_write_heads=1,
+        )
+
+        self.push_proj = hk.Linear(output_size=1)
+        self.pop_proj = hk.Linear(output_size=1)
+        self.value_proj = hk.Linear(output_size=self._embedding_size)
+        self.output_proj = hk.Linear(output_size=self._output_size)
+
+    def initial_state(
+        self, batch_size: int, nb_nodes: int, hiddens: _Array, **kwargs
+    ) -> NeuralStackMemoryModuleState:
+        init_stack_state = self.stack.initial_state(batch_size * nb_nodes)
+        init_read_values = jnp.zeros(
+            shape=[batch_size * nb_nodes, 1, self._embedding_size]
+        )
+        init_controller = None  # MLP does not depend on previous state
+
+        init_state = NeuralStackMemoryModuleState(
+            memory_values=init_stack_state.memory_values,
+            read_strengths=init_stack_state.read_strengths,
+            write_mask=init_stack_state.write_mask,
+            controller_hidden_state=init_controller,
+            read_values=init_read_values,
+        )
+        return init_state
+
+    def get_controller_shape(self, batch_size: int):
+        return (
+            # push_strengths,
+            [batch_size, 1, 1, 1],
+            # pop_strengths
+            [batch_size, 1, 1, 1],
+            # write_values
+            [batch_size, 1, self._embedding_size],
+        )
+
+    def call_controller(
+        self,
+        nxt_hidden: _Array,
+        batch_size: int,
+    ):
+        push_strengths = jax.nn.sigmoid(self.push_proj(nxt_hidden))
+        pop_strengths = jax.nn.sigmoid(self.pop_proj(nxt_hidden))
+
+        write_values = jnp.tanh(self.value_proj(nxt_hidden))
+
+        projected_outputs = [
+            push_strengths,
+            pop_strengths,
+            write_values,
+        ]
+
+        next_state = [
+            jnp.reshape(output, newshape=output_shape)
+            for output, output_shape in zip(
+                projected_outputs, self.get_controller_shape(batch_size)
+            )
+        ]
+        return next_state
+
+    def call_single_node(
+        self, nxt_hidden: _Array, cur_mem_state: NeuralStackMemoryModuleState
+    ):
+        batch_size = nxt_hidden.shape[0]
+        (push_strengths, pop_strengths, write_values,) = self.call_controller(
+            nxt_hidden=nxt_hidden,
+            batch_size=batch_size,
+        )
+
+        stack_input = NeuralStackControllerInterface(
+            write_values=write_values,
+            push_strengths=push_strengths,
+            pop_strengths=pop_strengths,
+        )
+        cur_stack_state = NeuralStackState(
+            memory_values=cur_mem_state.memory_values,
+            read_strengths=cur_mem_state.read_strengths,
+            write_mask=cur_mem_state.write_mask,
+        )
+
+        nxt_read_values, nxt_stack_state = self.stack(stack_input, cur_stack_state)
+
+        new_state = NeuralStackMemoryModuleState(
+            memory_values=nxt_stack_state.memory_values,
+            read_strengths=nxt_stack_state.read_strengths,
+            write_mask=nxt_stack_state.write_mask,
+            controller_hidden_state=None,
+            read_values=nxt_read_values,
+        )
+        nxt_read_values = self.output_proj(nxt_read_values)
+        return nxt_read_values, new_state
+
+    def __call__(
+        self, nxt_hidden: _Array, cur_mem_state: NeuralStackMemoryModuleState, **kwargs
+    ) -> Tuple[_Array, NeuralStackMemoryModuleState]:
+        # nxt_hidden, nxt_mem_state = jax.vmap(self.call_single_node)(
+        #     nxt_hidden, cur_mem_state
+        # )
+        batch_size = nxt_hidden.shape[0]
+        nb_nodes = nxt_hidden.shape[1]
+        rest_shape = nxt_hidden.shape[2:]
+        if cur_mem_state is None:
+            cur_mem_state = self.initial_state(
+                batch_size=batch_size, nb_nodes=nb_nodes, hiddens=nxt_hidden
+            )
+        nxt_hidden = nxt_hidden.reshape([batch_size * nb_nodes, *rest_shape])
+        nxt_read_values, nxt_mem_state = self.call_single_node(
+            nxt_hidden, cur_mem_state
+        )
+        nxt_read_values = nxt_read_values.reshape(
+            [batch_size, nb_nodes, self._output_size]
+        )
+        return nxt_read_values, nxt_mem_state

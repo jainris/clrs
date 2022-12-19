@@ -24,6 +24,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from clrs._src.memory import MLPStackMemory
+
 
 _Array = chex.Array
 _Fn = Callable[..., Any]
@@ -342,6 +344,7 @@ class PGN(Processor):
       use_triplets: bool = False,
       nb_triplet_fts: int = 8,
       gated: bool = False,
+      memory_module: str = 'none',
       name: str = 'mpnn_aggr',
   ):
     super().__init__(name=name)
@@ -358,6 +361,9 @@ class PGN(Processor):
     self.use_triplets = use_triplets
     self.nb_triplet_fts = nb_triplet_fts
     self.gated = gated
+    self.memory_module = memory_module
+    self.memory_state = None
+
 
   def __call__(
       self,
@@ -404,6 +410,19 @@ class PGN(Processor):
     msgs = (
         jnp.expand_dims(msg_1, axis=1) + jnp.expand_dims(msg_2, axis=2) +
         msg_e + jnp.expand_dims(msg_g, axis=(1, 2)))
+
+    if self.memory_module == 'stack':
+      memory_module = MLPStackMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
+      read_values, self.memory_state = memory_module(z, self.memory_state)
+      msgs = jnp.concatenate([msgs, read_values], axis=-2)
+      new_adj_shape = adj_mat.shape
+      new_adj_shape[-1] += 1
+      new_adj_shape[-2] += 1
+      temp = jnp.ones(new_adj_shape)
+      temp[:-1][:-1] = adj_mat
+      adj_mat = temp
+    elif self.memory_module != 'none':
+      raise ValueError('Unexpected processor memory kind ' + self.memory_module)
 
     if self._msgs_mlp_sizes is not None:
       msgs = hk.nets.MLP(self._msgs_mlp_sizes)(jax.nn.relu(msgs))
@@ -677,7 +696,8 @@ ProcessorFactory = Callable[[int], Processor]
 def get_processor_factory(kind: str,
                           use_ln: bool,
                           nb_triplet_fts: int,
-                          nb_heads: Optional[int] = None) -> ProcessorFactory:
+                          nb_heads: Optional[int] = None,
+                          memory_module: str = 'none') -> ProcessorFactory:
   """Returns a processor factory.
 
   Args:
@@ -741,6 +761,7 @@ def get_processor_factory(kind: str,
           use_ln=use_ln,
           use_triplets=False,
           nb_triplet_fts=0,
+          memory_module=memory_module,
       )
     elif kind == 'pgn':
       processor = PGN(
@@ -749,6 +770,7 @@ def get_processor_factory(kind: str,
           use_ln=use_ln,
           use_triplets=False,
           nb_triplet_fts=0,
+          memory_module=memory_module,
       )
     elif kind == 'pgn_mask':
       processor = PGNMask(
@@ -765,6 +787,7 @@ def get_processor_factory(kind: str,
           use_ln=use_ln,
           use_triplets=True,
           nb_triplet_fts=nb_triplet_fts,
+          memory_module=memory_module,
       )
     elif kind == 'triplet_pgn':
       processor = PGN(
