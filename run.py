@@ -114,6 +114,12 @@ flags.DEFINE_enum('processor_type', 'triplet_mpnn',
 flags.DEFINE_enum('processor_memory', 'none',
                   ['none', 'stack', 'priority_queue'],
                   'Which memory module to use with the processor.')
+flags.DEFINE_integer('pmem_size', 20, 'Max size of memory.')
+flags.DEFINE_integer('pmem_nb_heads', 4,
+                     'Number of attention heads for priority queue memory.')
+flags.DEFINE_enum('pmem_aggregation_technique', 'max',
+                  ['max', 'weighted'],
+                  'Aggregation technique to use for priority queue memory.')
 
 flags.DEFINE_string('checkpoint_path', '/tmp/CLRS30',
                     'Path in which checkpoints are saved.')
@@ -388,12 +394,19 @@ def main(unused_argv):
    test_samplers, test_sample_counts,
    spec_list) = create_samplers(rng, train_lengths)
 
+  memory_modules_args = {
+    'memory_size': FLAGS.pmem_size,
+    'nb_heads': FLAGS.pmem_nb_heads,
+    'aggregation_technique': FLAGS.pmem_aggregation_technique
+  }
+
   processor_factory = clrs.get_processor_factory(
       FLAGS.processor_type,
       use_ln=FLAGS.use_ln,
       nb_triplet_fts=FLAGS.nb_triplet_fts,
       nb_heads=FLAGS.nb_heads,
       memory_module=FLAGS.processor_memory,
+      memory_module_args=memory_modules_args,
   )
   model_params = dict(
       processor_factory=processor_factory,

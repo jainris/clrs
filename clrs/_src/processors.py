@@ -345,6 +345,7 @@ class PGN(Processor):
       use_triplets: bool = False,
       nb_triplet_fts: int = 8,
       gated: bool = False,
+      memory_module_args: dict = dict(),
       memory_module: str = 'none',
       name: str = 'mpnn_aggr',
   ):
@@ -363,6 +364,7 @@ class PGN(Processor):
     self.nb_triplet_fts = nb_triplet_fts
     self.gated = gated
     self.memory_module = memory_module
+    self.memory_module_args = memory_module_args
     self.memory_state = None
 
 
@@ -416,18 +418,19 @@ class PGN(Processor):
       if self.memory_module == 'stack':
         memory_module = MLPStackMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
       elif self.memory_module == 'priority_queue':
-        memory_module = PriorityQueue(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20, nb_heads=4)
+        memory_module = PriorityQueue(
+          output_size=msgs.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+          nb_heads=self.memory_module_args['nb_heads'],
+          aggregation_technique=self.memory_module_args['aggregation_technique'],
+        )
       else:
         raise ValueError('Unexpected processor memory kind ' + self.memory_module)
       read_values, self.memory_state = memory_module(z, self.memory_state) # [B, N, F]
       read_values = jnp.expand_dims(read_values, axis=1) # [B, 1, N, F]
       msgs = jnp.concatenate([msgs, read_values], axis=1)
       adj_mat = jnp.pad(adj_mat, ((0, 0), (0, 1), (0, 0)), mode='constant', constant_values=1)
-      # new_adj_shape = list(adj_mat.shape)
-      # new_adj_shape[-1] += 1
-      # temp = jnp.ones(new_adj_shape)
-      # temp[:, :-1] = adj_mat
-      # adj_mat = temp
 
     if self._msgs_mlp_sizes is not None:
       msgs = hk.nets.MLP(self._msgs_mlp_sizes)(jax.nn.relu(msgs))
@@ -702,7 +705,8 @@ def get_processor_factory(kind: str,
                           use_ln: bool,
                           nb_triplet_fts: int,
                           nb_heads: Optional[int] = None,
-                          memory_module: str = 'none') -> ProcessorFactory:
+                          memory_module: str = 'none',
+                          memory_module_args: dict = dict()) -> ProcessorFactory:
   """Returns a processor factory.
 
   Args:
@@ -767,6 +771,7 @@ def get_processor_factory(kind: str,
           use_triplets=False,
           nb_triplet_fts=0,
           memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'pgn':
       processor = PGN(
@@ -776,6 +781,7 @@ def get_processor_factory(kind: str,
           use_triplets=False,
           nb_triplet_fts=0,
           memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'pgn_mask':
       processor = PGNMask(

@@ -406,6 +406,7 @@ class PriorityQueue(MemoryModule):
         embedding_size: int,
         memory_size: int,
         nb_heads: int,
+        aggregation_technique: str = "max",
         name: str = "neural_priority_queue",
     ):
         super().__init__(name=name)
@@ -413,6 +414,7 @@ class PriorityQueue(MemoryModule):
         self._embedding_size = embedding_size
         self._memory_size = memory_size
         self.nb_heads = nb_heads
+        self.aggregation_technique = aggregation_technique
 
     def initial_state(self, batch_size: int, **kwargs) -> PriorityQueueState:
         memory_values = jnp.zeros((batch_size, self._memory_size, self._embedding_size))
@@ -475,19 +477,33 @@ class PriorityQueue(MemoryModule):
         )  # [B, H, N, S]
         # Projecting from the different heads into a single importance value
         coefs = jnp.transpose(coefs, (0, 2, 3, 1))  # [B, N, S, H]
-        coefs = hk.Linear(output_size=1)(coefs)  # [B, N, S, 1]
-        coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
-        coefs = jax.nn.softmax(
-            jax.nn.leaky_relu(coefs) + bias_mat[:, 0], axis=-1
-        )  # [B, N, S]
+        if self.nb_heads > 1:
+            # Multi-head
+            coefs = hk.Linear(output_size=1)(coefs)  # [B, N, S, 1]
+            coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
+            coefs = jax.nn.softmax(
+                jax.nn.leaky_relu(coefs) + bias_mat[:, 0], axis=-1
+            )  # [B, N, S]
+        else:
+            # Single-head
+            coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
 
-        max_att_idx = jnp.argmax(
-            jnp.reshape(coefs, (batch_size * nb_nodes, self._memory_size)),
-            axis=-1,
-        )  # [B * N]
-        batch_idx = jnp.tile(jnp.arange(batch_size), nb_nodes)
-        output = prev_state.memory_values[batch_idx, max_att_idx] # [B * N, F']
-        output = jnp.reshape(output, (batch_size, nb_nodes, -1)) # [B, N, F']
+        if self.aggregation_technique == "max":
+            max_att_idx = jnp.argmax(
+                jnp.reshape(coefs, (batch_size * nb_nodes, self._memory_size)),
+                axis=-1,
+            )  # [B * N]
+            batch_idx = jnp.tile(jnp.arange(batch_size), nb_nodes)
+            output = prev_state.memory_values[batch_idx, max_att_idx]  # [B * N, F']
+            output = jnp.reshape(output, (batch_size, nb_nodes, -1))  # [B, N, F']
+        elif self.aggregation_technique == 'weighted':
+            val = prev_state.memory_values
+            # val = jnp.expand_dims(prev_state.memory_values, axis=0) # [1, S, F']
+            # val = jnp.tile(prev_state.memory_values, (batch_size, 1, 1, 1)) # [B, S, F']
+            # print("val shape: {}".format(val.shape))
+            output = jnp.matmul(coefs, val) # [B, N, F']
+        else:
+            raise ValueError('Unknown memory aggregation technique ' + self.aggregation_technique)
         output = output_proj(output)
 
         new_memory_values = prev_state.memory_values + jnp.expand_dims(
@@ -495,7 +511,7 @@ class PriorityQueue(MemoryModule):
         ) * jnp.expand_dims(prev_state.write_mask, axis=2)
         new_write_mask = jnp.roll(prev_state.write_mask, shift=1, axis=1)
 
-        new_bias_mask = jnp.mod((prev_state.bias_mask + prev_state.write_mask), 2)
+        new_bias_mask = jnp.minimum((prev_state.bias_mask + prev_state.write_mask), 1)
 
         return output, PriorityQueueState(
             memory_values=new_memory_values,
