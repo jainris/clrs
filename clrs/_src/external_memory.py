@@ -91,8 +91,8 @@ class NeuralStackCell(hk.RNNCore):
         if batch_size is None:
             raise ValueError("Need a batch_size to get the initial state.")
         return NeuralStackState(
-            memory_values=jnp.zeros([self._memory_size, self._embedding_size]),
-            read_strengths=jnp.zeros([1, self._memory_size, 1]),
+            memory_values=jnp.zeros([batch_size, self._memory_size, self._embedding_size]),
+            read_strengths=jnp.zeros([batch_size, 1, self._memory_size, 1]),
             write_mask=self.initalize_write_mask(batch_size),
         )
 

@@ -25,6 +25,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from clrs._src.memory import MLPStackMemory
+from clrs._src.memory import PriorityQueue
 
 
 _Array = chex.Array
@@ -411,18 +412,22 @@ class PGN(Processor):
         jnp.expand_dims(msg_1, axis=1) + jnp.expand_dims(msg_2, axis=2) +
         msg_e + jnp.expand_dims(msg_g, axis=(1, 2)))
 
-    if self.memory_module == 'stack':
-      memory_module = MLPStackMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
-      read_values, self.memory_state = memory_module(z, self.memory_state)
-      msgs = jnp.concatenate([msgs, read_values], axis=-2)
-      new_adj_shape = adj_mat.shape
-      new_adj_shape[-1] += 1
-      new_adj_shape[-2] += 1
-      temp = jnp.ones(new_adj_shape)
-      temp[:-1][:-1] = adj_mat
-      adj_mat = temp
-    elif self.memory_module != 'none':
-      raise ValueError('Unexpected processor memory kind ' + self.memory_module)
+    if self.memory_module != 'none':
+      if self.memory_module == 'stack':
+        memory_module = MLPStackMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
+      elif self.memory_module == 'priority_queue':
+        memory_module = PriorityQueue(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20, nb_heads=4)
+      else:
+        raise ValueError('Unexpected processor memory kind ' + self.memory_module)
+      read_values, self.memory_state = memory_module(z, self.memory_state) # [B, N, F]
+      read_values = jnp.expand_dims(read_values, axis=1) # [B, 1, N, F]
+      msgs = jnp.concatenate([msgs, read_values], axis=1)
+      adj_mat = jnp.pad(adj_mat, ((0, 0), (0, 1), (0, 0)), mode='constant', constant_values=1)
+      # new_adj_shape = list(adj_mat.shape)
+      # new_adj_shape[-1] += 1
+      # temp = jnp.ones(new_adj_shape)
+      # temp[:, :-1] = adj_mat
+      # adj_mat = temp
 
     if self._msgs_mlp_sizes is not None:
       msgs = hk.nets.MLP(self._msgs_mlp_sizes)(jax.nn.relu(msgs))

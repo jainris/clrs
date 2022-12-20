@@ -156,15 +156,6 @@ class NeuralStackMemoryModule(MemoryModule):
             controller_hidden_state=init_controller,
             read_values=init_read_values,
         )
-
-        # init_state = jax.tree_util.tree_map(
-        #     lambda x, b=batch_size, n=nb_nodes: jnp.reshape(x, [b, n, *x.shape[1:]]),
-        #     init_state,
-        # )
-        # init_state = jax.tree_util.tree_map(
-        #     lambda x, b=batch_size, n=nb_nodes: jnp.reshape(x, [b, n, -1]),
-        #     init_state,
-        # )
         return init_state
 
     def get_controller_shape(self, batch_size: int):
@@ -263,9 +254,6 @@ class NeuralStackMemoryModule(MemoryModule):
     def __call__(
         self, nxt_hidden: _Array, cur_mem_state: NeuralStackMemoryModuleState, **kwargs
     ) -> Tuple[_Array, NeuralStackMemoryModuleState]:
-        # nxt_hidden, nxt_mem_state = jax.vmap(self.call_single_node)(
-        #     nxt_hidden, cur_mem_state
-        # )
         batch_size = nxt_hidden.shape[0]
         nb_nodes = nxt_hidden.shape[1]
         rest_shape = nxt_hidden.shape[2:]
@@ -273,30 +261,6 @@ class NeuralStackMemoryModule(MemoryModule):
         nxt_hidden, nxt_mem_state = self.call_single_node(nxt_hidden, cur_mem_state)
         nxt_hidden = nxt_hidden.reshape([batch_size, nb_nodes, *rest_shape])
         return nxt_hidden, nxt_mem_state
-
-    # def call_single_node(
-    #     self,
-    #     nxt_hidden: _Array,
-    #     controller_hidden_state: _Array,
-    #     read_values: _Array,
-    #     memory_values: jnp.ndarray,
-    #     read_strengths: jnp.ndarray,
-    #     write_mask: jnp.ndarray,
-    # ):
-    #     pass
-
-    # def __call__(
-    #     self, nxt_hidden: _Array, cur_mem_state: NeuralStackMemoryModuleState, **kwargs
-    # ) -> Tuple[_Array, NeuralStackMemoryModuleState]:
-    #     nxt_hidden, nxt_mem_state = jax.vmap(self.call_single_node)(
-    #         nxt_hidden,
-    #         cur_mem_state.controller_hidden_state,
-    #         cur_mem_state.read_values,
-    #         cur_mem_state.stack_state.memory_values,
-    #         cur_mem_state.stack_state.read_strengths,
-    #         cur_mem_state.stack_state.write_mask,
-    #     )
-    #     return nxt_hidden, nxt_mem_state
 
 
 class MLPStackMemory(MemoryModule):
@@ -411,9 +375,6 @@ class MLPStackMemory(MemoryModule):
     def __call__(
         self, nxt_hidden: _Array, cur_mem_state: NeuralStackMemoryModuleState, **kwargs
     ) -> Tuple[_Array, NeuralStackMemoryModuleState]:
-        # nxt_hidden, nxt_mem_state = jax.vmap(self.call_single_node)(
-        #     nxt_hidden, cur_mem_state
-        # )
         batch_size = nxt_hidden.shape[0]
         nb_nodes = nxt_hidden.shape[1]
         rest_shape = nxt_hidden.shape[2:]
@@ -429,3 +390,115 @@ class MLPStackMemory(MemoryModule):
             [batch_size, nb_nodes, self._output_size]
         )
         return nxt_read_values, nxt_mem_state
+
+
+class PriorityQueueState(MemoryState):
+    memory_values: _Array
+    # read_strengths: _Array
+    write_mask: _Array
+    bias_mask: _Array
+
+
+class PriorityQueue(MemoryModule):
+    def __init__(
+        self,
+        output_size: int,
+        embedding_size: int,
+        memory_size: int,
+        nb_heads: int,
+        name: str = "neural_priority_queue",
+    ):
+        super().__init__(name=name)
+        self._output_size = output_size
+        self._embedding_size = embedding_size
+        self._memory_size = memory_size
+        self.nb_heads = nb_heads
+
+    def initial_state(self, batch_size: int, **kwargs) -> PriorityQueueState:
+        memory_values = jnp.zeros((batch_size, self._memory_size, self._embedding_size))
+        write_mask = jax.nn.one_hot(
+            [0] * batch_size,
+            num_classes=self._memory_size,
+            dtype=jnp.float32,
+        )  # [B, S]
+        bias_mask = jnp.zeros((batch_size, self._memory_size))
+        return PriorityQueueState(
+            memory_values=memory_values, write_mask=write_mask, bias_mask=bias_mask
+        )
+
+    def __call__(
+        self, z: _Array, prev_state: PriorityQueueState, **kwargs
+    ) -> Tuple[_Array, PriorityQueueState]:
+        # z.shape: [B, N, _]
+        batch_size, nb_nodes, nb_z_fts = z.shape
+        if prev_state is None:
+            prev_state = self.initial_state(batch_size=batch_size)
+
+        # push_proj = hk.Linear(output_size=1)
+        # pop_proj = hk.Linear(output_size=1)
+        value_proj = hk.Linear(output_size=self._embedding_size)
+        output_proj = hk.Linear(output_size=self._output_size)
+
+        # push_strengths = jax.nn.sigmoid(push_proj(z))
+        # pop_strengths = jax.nn.sigmoid(pop_proj(z))
+
+        write_values = value_proj(z.reshape(batch_size * nb_nodes, nb_z_fts))
+        write_values = jnp.reshape(write_values, (batch_size, nb_nodes, nb_z_fts))
+        write_values = jnp.sum(write_values, axis=1)
+        write_values = jnp.tanh(write_values)
+
+        a_1 = hk.Linear(self.nb_heads)
+        a_2 = hk.Linear(self.nb_heads)
+
+        att_1 = jnp.expand_dims(a_1(z), axis=-1)
+        att_2 = jnp.expand_dims(a_2(prev_state.memory_values), axis=-1)  # [B, S, H, 1]
+
+        # [B, H, N, 1] + [B, H, 1, S]  = [B, H, N, S]
+        logits = jnp.transpose(att_1, (0, 2, 1, 3)) + jnp.transpose(att_2, (0, 2, 3, 1))
+
+        # Masking out the unwritten memory cells
+        # mem_idx = jnp.argmax(prev_state.write_mask, axis=-1)  # [B]
+        # fill_ones_till = jax.vmap(
+        #     lambda x: jnp.sum(jax.nn.one_hot(jnp.arange(x)), axis=0), 0, 0
+        # )
+        # bias_mat = (fill_ones_till(mem_idx) - 1) * 1e9  # [B, S]
+        bias_mat = (prev_state.bias_mask - 1) * 1e9  # [B, S]
+        bias_mat = jnp.expand_dims(bias_mat, 1)  # [B, 1, S]
+        bias_mat = jnp.expand_dims(bias_mat, 1)  # [B, 1, 1, S]
+        bias_mat = jnp.tile(bias_mat, (1, self.nb_heads, nb_nodes, 1))  # [B, H, N, S]
+
+        # bias_mat = jnp.zeros((nb_nodes, self.nb_heads, batch_size, self._memory_size)) # [N, H, B, S]
+        # bias_mat[:, :, mem_idx:] = -1e9
+
+        coefs = jax.nn.softmax(
+            jax.nn.leaky_relu(logits) + bias_mat, axis=-1
+        )  # [B, H, N, S]
+        # Projecting from the different heads into a single importance value
+        coefs = jnp.transpose(coefs, (0, 2, 3, 1))  # [B, N, S, H]
+        coefs = hk.Linear(output_size=1)(coefs)  # [B, N, S, 1]
+        coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
+        coefs = jax.nn.softmax(
+            jax.nn.leaky_relu(coefs) + bias_mat[:, 0], axis=-1
+        )  # [B, N, S]
+
+        max_att_idx = jnp.argmax(
+            jnp.reshape(coefs, (batch_size * nb_nodes, self._memory_size)),
+            axis=-1,
+        )  # [B * N]
+        batch_idx = jnp.tile(jnp.arange(batch_size), nb_nodes)
+        output = prev_state.memory_values[batch_idx, max_att_idx] # [B * N, F']
+        output = jnp.reshape(output, (batch_size, nb_nodes, -1)) # [B, N, F']
+        output = output_proj(output)
+
+        new_memory_values = prev_state.memory_values + jnp.expand_dims(
+            write_values, axis=1
+        ) * jnp.expand_dims(prev_state.write_mask, axis=2)
+        new_write_mask = jnp.roll(prev_state.write_mask, shift=1, axis=1)
+
+        new_bias_mask = jnp.mod((prev_state.bias_mask + prev_state.write_mask), 2)
+
+        return output, PriorityQueueState(
+            memory_values=new_memory_values,
+            write_mask=new_write_mask,
+            bias_mask=new_bias_mask,
+        )

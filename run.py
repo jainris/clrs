@@ -112,7 +112,7 @@ flags.DEFINE_enum('processor_type', 'triplet_mpnn',
                    'triplet_gpgn', 'triplet_gpgn_mask', 'triplet_gmpnn'],
                   'Processor type to use as the network P.')
 flags.DEFINE_enum('processor_memory', 'none',
-                  ['none', 'stack'],
+                  ['none', 'stack', 'priority_queue'],
                   'Which memory module to use with the processor.')
 
 flags.DEFINE_string('checkpoint_path', '/tmp/CLRS30',
@@ -392,7 +392,8 @@ def main(unused_argv):
       FLAGS.processor_type,
       use_ln=FLAGS.use_ln,
       nb_triplet_fts=FLAGS.nb_triplet_fts,
-      nb_heads=FLAGS.nb_heads
+      nb_heads=FLAGS.nb_heads,
+      memory_module=FLAGS.processor_memory,
   )
   model_params = dict(
       processor_factory=processor_factory,
