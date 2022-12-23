@@ -25,6 +25,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from clrs._src.external_memory import NeuralStackCell
+from clrs._src.external_memory import NeuralQueueCell
+from clrs._src.external_memory import NeuralDequeCell
 from clrs._src.external_memory import NeuralStackControllerInterface
 from clrs._src.external_memory import NeuralStackState
 
@@ -271,31 +273,37 @@ class MLPStackMemory(MemoryModule):
         output_size: int,
         embedding_size: int,
         memory_size: int,
+        initialize_class: bool = True,
         name: str = "neural_stack_mlp",
     ):
         super().__init__(name=name)
-        self._output_size = output_size
-        self._embedding_size = embedding_size
-        self._memory_size = memory_size
+        if initialize_class:
+            self._output_size = output_size
+            self._embedding_size = embedding_size
+            self._memory_size = memory_size
 
-        self.stack = NeuralStackCell(
-            embedding_size=embedding_size,
-            memory_size=memory_size,
-            num_read_heads=1,
-            num_write_heads=1,
-        )
+            self.stack = NeuralStackCell(
+                embedding_size=embedding_size,
+                memory_size=memory_size,
+                num_read_heads=1,
+                num_write_heads=1,
+            )
 
-        self.push_proj = hk.Linear(output_size=1)
-        self.pop_proj = hk.Linear(output_size=1)
-        self.value_proj = hk.Linear(output_size=self._embedding_size)
-        self.output_proj = hk.Linear(output_size=self._output_size)
+            self.push_proj = hk.Linear(output_size=1)
+            self.pop_proj = hk.Linear(output_size=1)
+            self.value_proj = hk.Linear(output_size=self._embedding_size)
+            self.output_proj = hk.Linear(output_size=self._output_size)
 
     def initial_state(
         self, batch_size: int, nb_nodes: int, hiddens: _Array, **kwargs
     ) -> NeuralStackMemoryModuleState:
         init_stack_state = self.stack.initial_state(batch_size * nb_nodes)
         init_read_values = jnp.zeros(
-            shape=[batch_size * nb_nodes, 1, self._embedding_size]
+            shape=[
+                batch_size * nb_nodes,
+                self.stack._num_read_heads,
+                self._embedding_size,
+            ]
         )
         init_controller = None  # MLP does not depend on previous state
 
@@ -311,11 +319,11 @@ class MLPStackMemory(MemoryModule):
     def get_controller_shape(self, batch_size: int):
         return (
             # push_strengths,
-            [batch_size, 1, 1, 1],
+            [batch_size, self.stack._num_write_heads, 1, 1],
             # pop_strengths
-            [batch_size, 1, 1, 1],
+            [batch_size, self.stack._num_write_heads, 1, 1],
             # write_values
-            [batch_size, 1, self._embedding_size],
+            [batch_size, self.stack._num_write_heads, self._embedding_size],
         )
 
     def call_controller(
@@ -371,6 +379,7 @@ class MLPStackMemory(MemoryModule):
             controller_hidden_state=None,
             read_values=nxt_read_values,
         )
+        nxt_read_values = jnp.reshape(nxt_read_values, (batch_size, -1))
         nxt_read_values = self.output_proj(nxt_read_values)
         return nxt_read_values, new_state
 
@@ -392,6 +401,64 @@ class MLPStackMemory(MemoryModule):
             [batch_size, nb_nodes, self._output_size]
         )
         return nxt_read_values, nxt_mem_state
+
+
+class MLPQueueMemory(MLPStackMemory):
+    def __init__(
+        self,
+        output_size: int,
+        embedding_size: int,
+        memory_size: int,
+        name: str = "neural_queue_mlp",
+    ):
+        super().__init__(
+            output_size=output_size,
+            embedding_size=embedding_size,
+            memory_size=memory_size,
+            initialize_class=False,
+            name=name,
+        )
+        self._output_size = output_size
+        self._embedding_size = embedding_size
+        self._memory_size = memory_size
+
+        self.stack = NeuralQueueCell(
+            memory_size=memory_size, embedding_size=embedding_size
+        )
+
+        self.push_proj = hk.Linear(output_size=1)
+        self.pop_proj = hk.Linear(output_size=1)
+        self.value_proj = hk.Linear(output_size=self._embedding_size)
+        self.output_proj = hk.Linear(output_size=self._output_size)
+
+
+class MLPDequeMemory(MLPStackMemory):
+    def __init__(
+        self,
+        output_size: int,
+        embedding_size: int,
+        memory_size: int,
+        name: str = "neural_deque_mlp",
+    ):
+        super().__init__(
+            output_size=output_size,
+            embedding_size=embedding_size,
+            memory_size=memory_size,
+            initialize_class=False,
+            name=name,
+        )
+        self._output_size = output_size
+        self._embedding_size = embedding_size
+        self._memory_size = memory_size
+
+        self.stack = NeuralDequeCell(
+            memory_size=memory_size, embedding_size=embedding_size
+        )
+
+        self.push_proj = hk.Linear(output_size=2)
+        self.pop_proj = hk.Linear(output_size=2)
+        self.value_proj = hk.Linear(output_size=2 * self._embedding_size)
+        self.output_proj = hk.Linear(output_size=self._output_size)
 
 
 class PriorityQueueState(MemoryState):
@@ -588,9 +655,7 @@ class PriorityQueueV2(MemoryModule):
         pop_strengths = pop_proj(
             jnp.reshape(z, (batch_size * nb_nodes, nb_z_fts))
         )  # [B * N, 1]
-        pop_strengths = jnp.reshape(
-            pop_strengths, (batch_size, nb_nodes)
-        )  # [B, N]
+        pop_strengths = jnp.reshape(pop_strengths, (batch_size, nb_nodes))  # [B, N]
         pop_strengths_sum = jnp.sum(pop_strengths, axis=1)  # [B]
         # node_wise_pop_strengths = jnp.expand_dims(pop_strengths_sum, axis=1) # [B, 1]
         # node_wise_pop_strengths = (
@@ -599,7 +664,9 @@ class PriorityQueueV2(MemoryModule):
         #     / nb_nodes
         # )  # [B, N, 1]
         pop_strengths = jax.nn.softmax(pop_strengths, axis=1)  # [B, N]
-        pop_strengths = jnp.expand_dims(pop_strengths_sum, axis=1) * pop_strengths # [B, N]
+        pop_strengths = (
+            jnp.expand_dims(pop_strengths_sum, axis=1) * pop_strengths
+        )  # [B, N]
         node_wise_pop_strengths = jnp.expand_dims(pop_strengths, axis=2)  # [B, N, 1]
 
         write_values = value_proj(z.reshape(batch_size * nb_nodes, nb_z_fts))

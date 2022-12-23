@@ -112,7 +112,7 @@ flags.DEFINE_enum('processor_type', 'triplet_mpnn',
                    'triplet_gpgn', 'triplet_gpgn_mask', 'triplet_gmpnn'],
                   'Processor type to use as the network P.')
 flags.DEFINE_enum('processor_memory', 'none',
-                  ['none', 'stack', 'priority_queue', 'priority_queue_v2'],
+                  ['none', 'stack', 'queue', 'deque', 'priority_queue', 'priority_queue_v2'],
                   'Which memory module to use with the processor.')
 flags.DEFINE_integer('pmem_size', 20, 'Max size of memory.')
 flags.DEFINE_integer('pmem_nb_heads', 4,

@@ -25,6 +25,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from clrs._src.memory import MLPStackMemory
+from clrs._src.memory import MLPQueueMemory
+from clrs._src.memory import MLPDequeMemory
 from clrs._src.memory import PriorityQueue
 from clrs._src.memory import PriorityQueueV2
 
@@ -418,6 +420,10 @@ class PGN(Processor):
     if self.memory_module != 'none':
       if self.memory_module == 'stack':
         memory_module = MLPStackMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
+      elif self.memory_module == 'queue':
+        memory_module = MLPQueueMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
+      elif self.memory_module == 'deque':
+        memory_module = MLPDequeMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
       elif self.memory_module == 'priority_queue':
         memory_module = PriorityQueue(
           output_size=msgs.shape[-1],

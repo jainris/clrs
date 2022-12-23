@@ -91,7 +91,9 @@ class NeuralStackCell(hk.RNNCore):
         if batch_size is None:
             raise ValueError("Need a batch_size to get the initial state.")
         return NeuralStackState(
-            memory_values=jnp.zeros([batch_size, self._memory_size, self._embedding_size]),
+            memory_values=jnp.zeros(
+                [batch_size, self._memory_size, self._embedding_size]
+            ),
             read_strengths=jnp.zeros([batch_size, 1, self._memory_size, 1]),
             write_mask=self.initalize_write_mask(batch_size),
         )
@@ -131,8 +133,8 @@ class NeuralStackCell(hk.RNNCore):
                 new_read_strengths
                 - jax.nn.relu(
                     # jax.lax.slice(inputs.pop_strengths, [0, h, 0, 0], [-1, 1, -1, -1])
-                    inputs.pop_strengths[:, h:h + 1, :, :] -
-                    - jnp.expand_dims(
+                    inputs.pop_strengths[:, h : h + 1, :, :]
+                    - -jnp.expand_dims(
                         jnp.sum(new_read_strengths * self.get_read_mask(h), axis=2),
                         axis=3,
                     )
@@ -210,6 +212,121 @@ class NeuralStackCell(hk.RNNCore):
             raise ValueError("Write head index must be 0 for stack.")
 
 
+class NeuralQueueCell(NeuralStackCell):
+    """Neural Queue Cell (reads from opposite end as compared to stack)"""
+
+    def __init__(
+        self,
+        memory_size: int,
+        embedding_size: int,
+        name: Optional[str] = "neural_queue_cell",
+    ):
+        # Override constructor to set 2 read/write heads.
+        super(NeuralQueueCell, self).__init__(
+            embedding_size=embedding_size,
+            memory_size=memory_size,
+            num_read_heads=1,
+            num_write_heads=1,
+            name=name,
+        )
+
+    def get_read_mask(self, read_head_index):
+        """
+        Uses mask_pos_lt() instead of mask_pos_gt() to reverse read values.
+
+        Args:
+          read_head_index: Identifies which read head we're getting the mask for.
+
+        Returns:
+          An array of shape [1, 1, memory_size, memory_size]
+        """
+        if read_head_index == 0:
+            return jnp.expand_dims(
+                mask_pos_gt(self._memory_size, self._memory_size), axis=0
+            )
+        else:
+            raise ValueError("Read head index must be 0 for queue.")
+
+
+class NeuralDequeCell(NeuralStackCell):
+    """
+    Neural Deque that supports reading and writing from both ends.
+    """
+
+    def __init__(
+        self,
+        memory_size: int,
+        embedding_size: int,
+        name: Optional[str] = "neural_deque_cell",
+    ):
+        # Override constructor to set 2 read/write heads.
+        super(NeuralDequeCell, self).__init__(
+            embedding_size=embedding_size,
+            memory_size=memory_size,
+            num_read_heads=2,
+            num_write_heads=2,
+            name=name,
+        )
+
+    def get_read_mask(self, read_head_index):
+        if read_head_index == 0:
+            # Use the same read mask as the queue for the bottom of the deque.
+            return jnp.expand_dims(
+                mask_pos_gt(self._memory_size, self._memory_size), axis=0
+            )
+        elif read_head_index == 1:
+            # Use the same read mask as the stack for the top of the deque.
+            return jnp.expand_dims(
+                mask_pos_lt(self._memory_size, self._memory_size), axis=0
+            )
+        else:
+            raise ValueError("Read head index must be either 0 or 1 for deque.")
+
+    def get_write_head_offset(self, write_head_index):
+        if write_head_index == 0:
+            # Move the bottom write position back at each timestep.
+            return -1
+        elif write_head_index == 1:
+            # Move the top write position forward at each timestep.
+            return 1
+        else:
+            raise ValueError("Write head index must be 0 or 1 for deque.")
+
+    def initialize_write_strengths(self, batch_size):
+        """Initialize write strengths which write in both directions.
+        Unlike in Grefenstette et al., It's writing out from the center of the
+        memory so that it doesn't need to shift the entire memory forward at each
+        step.
+        Args:
+          batch_size: The size of the current batch.
+        Returns:
+          An array of shape [num_write_heads, memory_size, 1].
+        """
+        memory_center = self._memory_size // 2
+        return jnp.expand_dims(
+            jnp.concatenate(
+                [
+                    # The write strength for the deque bottom.
+                    # Should be shifted back at each timestep.
+                    jax.nn.one_hot(
+                        [[memory_center - 1]] * batch_size,
+                        num_classes=self._memory_size,
+                        dtype=jnp.float32,
+                    ),
+                    # The write strength for the deque top.
+                    # Should be shifted forward at each timestep.
+                    jax.nn.one_hot(
+                        [[memory_center]] * batch_size,
+                        num_classes=self._memory_size,
+                        dtype=jnp.float32,
+                    ),
+                ],
+                axis=1,
+            ),
+            axis=3,
+        )
+
+
 def mask_pos_lt(source_length: int, target_length: int):
     """A mask with 1.0 wherever source_pos < target_pos and 0.0 elsewhere.
     Args:
@@ -221,6 +338,26 @@ def mask_pos_lt(source_length: int, target_length: int):
     return jnp.expand_dims(
         jax.lax.convert_element_type(
             jnp.less(
+                jnp.expand_dims(jnp.arange(target_length), axis=0),
+                jnp.expand_dims(jnp.arange(source_length), axis=1),
+            ),
+            new_dtype=jnp.float32,
+        ),
+        axis=0,
+    )
+
+
+def mask_pos_gt(source_length, target_length):
+    """A mask with 1.0 wherever source_pos > target_pos and 0.0 elsewhere.
+    Args:
+      source_length: an integer
+      target_length: an integer
+    Returns:
+      a Tensor with shape [1, target_length, source_length]
+    """
+    return jnp.expand_dims(
+        jax.lax.convert_element_type(
+            jnp.greater(
                 jnp.expand_dims(jnp.arange(target_length), axis=0),
                 jnp.expand_dims(jnp.arange(source_length), axis=1),
             ),
