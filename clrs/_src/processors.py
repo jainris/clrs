@@ -26,6 +26,7 @@ import numpy as np
 
 from clrs._src.memory import MLPStackMemory
 from clrs._src.memory import PriorityQueue
+from clrs._src.memory import PriorityQueueV2
 
 
 _Array = chex.Array
@@ -419,6 +420,14 @@ class PGN(Processor):
         memory_module = MLPStackMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
       elif self.memory_module == 'priority_queue':
         memory_module = PriorityQueue(
+          output_size=msgs.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+          nb_heads=self.memory_module_args['nb_heads'],
+          aggregation_technique=self.memory_module_args['aggregation_technique'],
+        )
+      elif self.memory_module == 'priority_queue_v2':
+        memory_module = PriorityQueueV2(
           output_size=msgs.shape[-1],
           embedding_size=z.shape[-1],
           memory_size=self.memory_module_args['memory_size'],
