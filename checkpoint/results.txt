@@ -8,3 +8,19 @@ Algo dfs step 29999 current loss 8.298571, current_train_items 960000.
 (val) algo dfs step 29500: {'pi': 0.5390625, 'score': 0.5390625, 'examples_seen': 944032, 'step': 29500, 'algorithm': 'dfs'} (not saved, best: 0.539)
 (test) algo dfs : {'pi': 0.1884765625, 'score': 0.1884765625, 'examples_seen': 960000, 'step': 30000, 'algorithm': 'dfs'}
 
+
+Neural Stack (memory_size = 128)
+--------------------------------
+
+Algo dfs step 29999 current loss 2307981.250000, current_train_items 960000.
+(val) algo dfs step 29500: {'pi': 0.529296875, 'score': 0.529296875, 'examples_seen': 944032, 'step': 29500, 'algorithm': 'dfs'} (not saved, best: 0.602)
+(test) algo dfs : {'pi': 0.1103515625, 'score': 0.1103515625, 'examples_seen': 960000, 'step': 30000, 'algorithm': 'dfs'}
+
+Algo dfs step 29695 current loss 3.137851, current_train_items 950272.
+Algo dfs step 29696 current loss 4.854741, current_train_items 950304.
+Algo dfs step 29697 current loss 7.543387, current_train_items 950336.
+Algo dfs step 29698 current loss 8.799926, current_train_items 950368.
+Algo dfs step 29699 current loss 14.087371, current_train_items 950400.
+Algo dfs step 29811 current loss 32.354675, current_train_items 953984.
+Algo dfs step 29812 current loss 320920.375000, current_train_items 954016.
+
