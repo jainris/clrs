@@ -447,6 +447,21 @@ def main(unused_argv):
   else:
     train_model = eval_model
 
+  feedback_list = [next(t) for t in train_samplers]
+
+  # Initialize model.
+  all_features = [f.features for f in feedback_list]
+  if FLAGS.chunked_training:
+    # We need to initialize the model with samples of all lengths for
+    # all algorithms. Also, we need to make sure that the order of these
+    # sample sizes is the same as the order of the actual training sizes.
+    all_length_features = [all_features] + [
+        [next(t).features for t in train_samplers]
+        for _ in range(len(train_lengths))]
+    train_model.init(all_length_features[:-1], FLAGS.seed + 1)
+  else:
+    train_model.init(all_features, FLAGS.seed + 1)
+
   logging.info('Restoring best model from checkpoint...')
   eval_model.restore_model('best.pkl', only_load_processor=False)
 
