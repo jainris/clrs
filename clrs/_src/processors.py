@@ -419,11 +419,23 @@ class PGN(Processor):
 
     if self.memory_module != 'none':
       if self.memory_module == 'stack':
-        memory_module = MLPStackMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
+        memory_module = MLPStackMemory(
+          output_size=msgs.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+        )
       elif self.memory_module == 'queue':
-        memory_module = MLPQueueMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
+        memory_module = MLPQueueMemory(
+          output_size=msgs.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+        )
       elif self.memory_module == 'deque':
-        memory_module = MLPDequeMemory(output_size=msgs.shape[-1], embedding_size=z.shape[-1], memory_size=20)
+        memory_module = MLPDequeMemory(
+          output_size=msgs.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+        )
       elif self.memory_module == 'priority_queue':
         memory_module = PriorityQueue(
           output_size=msgs.shape[-1],

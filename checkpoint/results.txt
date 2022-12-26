@@ -1,6 +1,10 @@
 Baseline
 --------
 Algo bfs step 29999 current loss 0.000131, current_train_items 960000.
-(val) algo bfs step 29500: {'pi': 1.0, 'score': 1.0, 'examples_seen': 944032, 'step': 29500, 'algorithm': 'bfs'} (not saved)
+(val) algo bfs step 29500: {'pi': 1.0, 'score': 1.0, 'examples_seen': 944032, 'step': 29500, 'algorithm': 'bfs'} (not saved, best: 1.0)
 (test) algo bfs : {'pi': 0.99658203125, 'score': 0.99658203125, 'examples_seen': 960000, 'step': 30000, 'algorithm': 'bfs'}
+
+Algo dfs step 29999 current loss 8.298571, current_train_items 960000.
+(val) algo dfs step 29500: {'pi': 0.5390625, 'score': 0.5390625, 'examples_seen': 944032, 'step': 29500, 'algorithm': 'dfs'} (not saved, best: 0.539)
+(test) algo dfs : {'pi': 0.1884765625, 'score': 0.1884765625, 'examples_seen': 960000, 'step': 30000, 'algorithm': 'dfs'}
 
