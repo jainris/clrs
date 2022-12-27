@@ -539,6 +539,23 @@ def main(unused_argv):
     step += 1
     length_idx = (length_idx + 1) % len(train_lengths)
 
+  train_model.save_model('last.pkl')
+
+  logging.info('Last model from checkpoint...')
+  for algo_idx in range(len(train_samplers)):
+    common_extras = {'examples_seen': current_train_items[algo_idx],
+                     'step': step,
+                     'algorithm': FLAGS.algorithms[algo_idx]}
+
+    new_rng_key, rng_key = jax.random.split(rng_key)
+    test_stats = collect_and_eval(
+        test_samplers[algo_idx],
+        functools.partial(eval_model.predict, algorithm_index=algo_idx),
+        test_sample_counts[algo_idx],
+        new_rng_key,
+        extras=common_extras)
+    logging.info('(test) algo %s : %s', FLAGS.algorithms[algo_idx], test_stats)
+
   logging.info('Restoring best model from checkpoint...')
   eval_model.restore_model('best.pkl', only_load_processor=False)
 

@@ -462,6 +462,22 @@ def main(unused_argv):
   else:
     train_model.init(all_features, FLAGS.seed + 1)
 
+  logging.info('Restoring Last model from checkpoint...')
+  eval_model.restore_model('last.pkl', only_load_processor=False)
+  for algo_idx in range(len(train_samplers)):
+    common_extras = {'examples_seen': 32,
+                     'step': 1,
+                     'algorithm': FLAGS.algorithms[algo_idx]}
+
+    new_rng_key, rng_key = jax.random.split(rng_key)
+    test_stats = collect_and_eval(
+        test_samplers[algo_idx],
+        functools.partial(eval_model.predict, algorithm_index=algo_idx),
+        test_sample_counts[algo_idx],
+        new_rng_key,
+        extras=common_extras)
+    logging.info('(test) algo %s : %s', FLAGS.algorithms[algo_idx], test_stats)
+
   logging.info('Restoring best model from checkpoint...')
   eval_model.restore_model('best.pkl', only_load_processor=False)
 
