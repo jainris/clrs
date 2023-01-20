@@ -129,6 +129,9 @@ flags.DEFINE_integer('pmem_nb_heads', 4,
 flags.DEFINE_enum('pmem_aggregation_technique', 'max',
                   ['max', 'weighted'],
                   'Aggregation technique to use for priority queue memory.')
+flags.DEFINE_enum('memory_send_to', 'self',
+                  ['self', 'all'],
+                  'Whom to send the popped value from memory to?')
 
 flags.DEFINE_string('checkpoint_path', '/tmp/CLRS30',
                     'Path in which checkpoints are saved.')
@@ -406,7 +409,8 @@ def main(unused_argv):
   memory_modules_args = {
     'memory_size': FLAGS.pmem_size,
     'nb_heads': FLAGS.pmem_nb_heads,
-    'aggregation_technique': FLAGS.pmem_aggregation_technique
+    'aggregation_technique': FLAGS.pmem_aggregation_technique,
+    'memory_send_to': FLAGS.memory_send_to
   }
 
   processor_factory = clrs.get_processor_factory(

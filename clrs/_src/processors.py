@@ -463,10 +463,23 @@ class PGN(Processor):
         )
       else:
         raise ValueError('Unexpected processor memory kind ' + self.memory_module)
-      read_values, self.memory_state = memory_module(z, self.memory_state) # [B, N, F]
-      read_values = jnp.expand_dims(read_values, axis=1) # [B, 1, N, F]
+      read_values, self.memory_state = memory_module(z, self.memory_state)  # [B, M, N, F] or [B, N, F]
+      if read_values.ndim == 3:
+        # [B, N, F]
+        read_values = jnp.expand_dims(read_values, axis=1) # [B, 1, N, F]
+        if self.memory_module_args['memory_send_to'] == "all":
+          nb_nodes = read_values.shape[2]
+          read_values = jnp.tile(read_values, (1, nb_nodes, 1, 1))  # [B, N, N, F]
+        else:
+          assert self.memory_module_args['memory_send_to'] == "self", "Invalid memory-send-to value obtained."
+      nb_new_messages = read_values.shape[1]
       msgs = jnp.concatenate([msgs, read_values], axis=1)
-      adj_mat = jnp.pad(adj_mat, ((0, 0), (0, 1), (0, 0)), mode='constant', constant_values=1)
+      adj_mat = jnp.pad(
+        adj_mat,
+        ((0, 0), (0, nb_new_messages), (0, 0)),
+        mode='constant',
+        constant_values=1
+      )
 
     if self._msgs_mlp_sizes is not None:
       msgs = hk.nets.MLP(self._msgs_mlp_sizes)(jax.nn.relu(msgs))
