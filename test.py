@@ -121,7 +121,7 @@ flags.DEFINE_enum('processor_type', 'triplet_mpnn',
                   'Processor type to use as the network P.')
 flags.DEFINE_enum('processor_memory', 'none',
                   ['none', 'stack', 'queue', 'deque', 'priority_queue',
-                   'priority_queue_v1', 'priority_queue_v2',
+                   'priority_queue_v1', 'priority_queue_v2', 'priority_queue_v2_2',
                    'priority_queue_cp_max', 'priority_queue_cp_max_proj',
                    'priority_queue_cp_weighted', 'priority_queue_cp_weighted_proj'],
                   'Which memory module to use with the processor.')
