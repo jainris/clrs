@@ -421,25 +421,25 @@ class PGN(Processor):
     if self.memory_module != 'none':
       if self.memory_module == 'stack':
         memory_module = MLPStackMemory(
-          output_size=msgs.shape[-1],
+          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
           embedding_size=z.shape[-1],
           memory_size=self.memory_module_args['memory_size'],
         )
       elif self.memory_module == 'queue':
         memory_module = MLPQueueMemory(
-          output_size=msgs.shape[-1],
+          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
           embedding_size=z.shape[-1],
           memory_size=self.memory_module_args['memory_size'],
         )
       elif self.memory_module == 'deque':
         memory_module = MLPDequeMemory(
-          output_size=msgs.shape[-1],
+          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
           embedding_size=z.shape[-1],
           memory_size=self.memory_module_args['memory_size'],
         )
       elif self.memory_module == 'priority_queue':
         memory_module = PriorityQueue(
-          output_size=msgs.shape[-1],
+          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
           embedding_size=z.shape[-1],
           memory_size=self.memory_module_args['memory_size'],
           nb_heads=self.memory_module_args['nb_heads'],
@@ -447,7 +447,7 @@ class PGN(Processor):
         )
       elif self.memory_module == 'priority_queue_v1':
         memory_module = PriorityQueueV1(
-          output_size=msgs.shape[-1],
+          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
           embedding_size=z.shape[-1],
           memory_size=self.memory_module_args['memory_size'],
           nb_heads=self.memory_module_args['nb_heads'],
@@ -455,7 +455,7 @@ class PGN(Processor):
         )
       elif self.memory_module == 'priority_queue_v2':
         memory_module = PriorityQueueV2(
-          output_size=msgs.shape[-1],
+          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
           embedding_size=z.shape[-1],
           memory_size=self.memory_module_args['memory_size'],
           nb_heads=self.memory_module_args['nb_heads'],
@@ -463,7 +463,7 @@ class PGN(Processor):
         )
       else:
         raise ValueError('Unexpected processor memory kind ' + self.memory_module)
-      read_values, self.memory_state = memory_module(z, self.memory_state)  # [B, M, N, F] or [B, N, F]
+      read_values, self.memory_state = memory_module(z, self.memory_state)
       if read_values.ndim == 3:
         # [B, N, F]
         read_values = jnp.expand_dims(read_values, axis=1) # [B, 1, N, F]
@@ -472,6 +472,13 @@ class PGN(Processor):
           read_values = jnp.tile(read_values, (1, nb_nodes, 1, 1))  # [B, N, N, F]
         else:
           assert self.memory_module_args['memory_send_to'] == "self", "Invalid memory-send-to value obtained."
+
+      if not self.memory_module_args['direct_output']:
+        read_values = m_1(read_values)  # [B, M, N, F]
+        read_values = (
+          read_values + jnp.expand_dims(msg_2, axis=2) + jnp.expand_dims(msg_g, axis=(1, 2))
+        )  # [B, M, N, F]
+
       nb_new_messages = read_values.shape[1]
       msgs = jnp.concatenate([msgs, read_values], axis=1)
       adj_mat = jnp.pad(
