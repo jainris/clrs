@@ -28,6 +28,7 @@ from clrs._src.memory import MLPStackMemory
 from clrs._src.memory import MLPQueueMemory
 from clrs._src.memory import MLPDequeMemory
 from clrs._src.memory import PriorityQueue
+from clrs._src.memory import PriorityQueue_CopyNodeFeatures
 from clrs._src.memory import PriorityQueueV1
 from clrs._src.memory import PriorityQueueV2
 
@@ -444,6 +445,46 @@ class PGN(Processor):
           memory_size=self.memory_module_args['memory_size'],
           nb_heads=self.memory_module_args['nb_heads'],
           aggregation_technique=self.memory_module_args['aggregation_technique'],
+        )
+      elif self.memory_module == 'priority_queue_cp_max':
+        memory_module = PriorityQueue_CopyNodeFeatures(
+          output_size=z.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+          nb_heads=self.memory_module_args['nb_heads'],
+          aggregation_technique=self.memory_module_args['aggregation_technique'],
+          push_agg_technique="max",
+          proj_output=False,
+        )
+      elif self.memory_module == 'priority_queue_cp_weighted':
+        memory_module = PriorityQueue_CopyNodeFeatures(
+          output_size=z.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+          nb_heads=self.memory_module_args['nb_heads'],
+          aggregation_technique=self.memory_module_args['aggregation_technique'],
+          push_agg_technique="weighted",
+          proj_output=False,
+        )
+      elif self.memory_module == 'priority_queue_cp_max_proj':
+        memory_module = PriorityQueue_CopyNodeFeatures(
+          output_size=z.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+          nb_heads=self.memory_module_args['nb_heads'],
+          aggregation_technique=self.memory_module_args['aggregation_technique'],
+          push_agg_technique="max",
+          proj_output=True,
+        )
+      elif self.memory_module == 'priority_queue_cp_weighted_proj':
+        memory_module = PriorityQueue_CopyNodeFeatures(
+          output_size=z.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+          nb_heads=self.memory_module_args['nb_heads'],
+          aggregation_technique=self.memory_module_args['aggregation_technique'],
+          push_agg_technique="weighted",
+          proj_output=True,
         )
       elif self.memory_module == 'priority_queue_v1':
         memory_module = PriorityQueueV1(
