@@ -552,9 +552,7 @@ class PriorityQueue(MemoryModule):
             # Multi-head
             coefs = hk.Linear(output_size=1)(coefs)  # [B, N, S, 1]
             coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
-            coefs = jax.nn.softmax(
-                jax.nn.leaky_relu(coefs) + bias_mat[:, 0], axis=-1
-            )  # [B, N, S]
+            coefs = jax.nn.softmax(coefs, axis=-1)  # [B, N, S]
         else:
             # Single-head
             coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
@@ -692,9 +690,7 @@ class PriorityQueue_CopyNodeFeatures(MemoryModule):
             # Multi-head
             coefs = hk.Linear(output_size=1)(coefs)  # [B, N, S, 1]
             coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
-            coefs = jax.nn.softmax(
-                jax.nn.leaky_relu(coefs) + bias_mat[:, 0], axis=-1
-            )  # [B, N, S]
+            coefs = jax.nn.softmax(coefs, axis=-1)  # [B, N, S]
         else:
             # Single-head
             coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
@@ -819,9 +815,7 @@ class PriorityQueueV1(MemoryModule):
             # Multi-head
             coefs = hk.Linear(output_size=1)(coefs)  # [B, N, S, 1]
             coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
-            coefs = jax.nn.softmax(
-                jax.nn.leaky_relu(coefs) + bias_mat[:, 0], axis=-1
-            )  # [B, N, S]
+            coefs = jax.nn.softmax(coefs, axis=-1)  # [B, N, S]
         else:
             # Single-head
             coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
@@ -971,9 +965,7 @@ class PriorityQueueV2(MemoryModule):
             # Multi-head
             coefs = hk.Linear(output_size=1)(coefs)  # [B, N, S, 1]
             coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
-            coefs = jax.nn.softmax(
-                jax.nn.leaky_relu(coefs) + bias_mat[:, 0], axis=-1
-            )  # [B, N, S]
+            coefs = jax.nn.softmax(coefs, axis=-1)  # [B, N, S]
         else:
             # Single-head
             coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
