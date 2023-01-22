@@ -32,6 +32,7 @@ from clrs._src.memory import PriorityQueue_CopyNodeFeatures
 from clrs._src.memory import PriorityQueueV1
 from clrs._src.memory import PriorityQueueV2
 from clrs._src.memory import PriorityQueueV2_2
+from clrs._src.memory import PriorityQueueV2_single_value
 
 
 _Array = chex.Array
@@ -505,6 +506,14 @@ class PGN(Processor):
         )
       elif self.memory_module == 'priority_queue_v2_2':
         memory_module = PriorityQueueV2_2(
+          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
+          embedding_size=z.shape[-1],
+          memory_size=self.memory_module_args['memory_size'],
+          nb_heads=self.memory_module_args['nb_heads'],
+          aggregation_technique=self.memory_module_args['aggregation_technique'],
+        )
+      elif self.memory_module == 'priority_queue_v2_sv':
+        memory_module = PriorityQueueV2_single_value(
           output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
           embedding_size=z.shape[-1],
           memory_size=self.memory_module_args['memory_size'],
