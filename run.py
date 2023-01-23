@@ -127,6 +127,7 @@ flags.DEFINE_enum('processor_memory', 'none',
                    'priority_queue_cp_weighted', 'priority_queue_cp_weighted_proj'],
                   'Which memory module to use with the processor.')
 flags.DEFINE_integer('pmem_size', 20, 'Max size of memory.')
+flags.DEFINE_integer('pmem_embedding_size', None, 'Embedding size of memory module.')
 flags.DEFINE_integer('pmem_nb_heads', 4,
                      'Number of attention heads for priority queue memory.')
 flags.DEFINE_enum('pmem_aggregation_technique', 'max',
@@ -414,6 +415,7 @@ def main(unused_argv):
 
   memory_modules_args = {
     'memory_size': FLAGS.pmem_size,
+    'embedding_size': FLAGS.pmem_embedding_size,
     'nb_heads': FLAGS.pmem_nb_heads,
     'aggregation_technique': FLAGS.pmem_aggregation_technique,
     'memory_send_to': FLAGS.memory_send_to,
