@@ -837,7 +837,9 @@ class PriorityQueue_ProperHeads(MemoryModule):
             output = output_proj(output)  # [B, H, N, O]
         else:
             output = jnp.transpose(output, [0, 2, 1, 3])
-            output = jnp.reshape(output, (batch_size, nb_nodes, self.nb_heads * self._embedding_size))
+            output = jnp.reshape(
+                output, (batch_size, nb_nodes, self.nb_heads * self._embedding_size)
+            )
             output = output_proj(output)
 
         new_memory_values = prev_state.memory_values + jnp.expand_dims(
@@ -1164,7 +1166,7 @@ class PriorityQueueV2(MemoryModule):
         )
 
 
-class PriorityQueueV2_2(MemoryModule):
+class PriorityQueueV2_ProperHeads(MemoryModule):
     def __init__(
         self,
         output_size: int,
@@ -1172,6 +1174,7 @@ class PriorityQueueV2_2(MemoryModule):
         memory_size: int,
         nb_heads: int,
         aggregation_technique: str = "max",
+        message_per_head: bool = False,
         name: str = "neural_priority_queue_v2",
     ):
         super().__init__(name=name)
@@ -1180,6 +1183,7 @@ class PriorityQueueV2_2(MemoryModule):
         self._memory_size = memory_size
         self.nb_heads = nb_heads
         self.aggregation_technique = aggregation_technique
+        self.message_per_head = message_per_head
 
     def initial_state(self, batch_size: int, **kwargs) -> PriorityQueueStateV2:
         memory_values = jnp.zeros((batch_size, self._memory_size, self._embedding_size))
@@ -1260,34 +1264,29 @@ class PriorityQueueV2_2(MemoryModule):
         coefs = jax.nn.softmax(
             jax.nn.leaky_relu(logits) + bias_mat, axis=-1
         )  # [B, H, N, S]
-        # Projecting from the different heads into a single importance value
-        coefs = jnp.transpose(coefs, (0, 2, 3, 1))  # [B, N, S, H]
-        if self.nb_heads > 1:
-            # Multi-head
-            coefs = hk.Linear(output_size=1)(coefs)  # [B, N, S, 1]
-            coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
-            coefs = jax.nn.softmax(coefs, axis=-1)  # [B, N, S]
-        else:
-            # Single-head
-            coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
 
         new_read_strengths = prev_state.read_strengths
         # Calculating the proportion of each element popped
         # (and their contribute to individual outputs)
         if self.aggregation_technique == "max":
             max_att_idx = jnp.argmax(
-                jnp.reshape(coefs, (batch_size * nb_nodes, self._memory_size)),
+                coefs,
                 axis=-1,
-            )  # [B * N]
-            max_att_idx = jnp.reshape(max_att_idx, (batch_size, nb_nodes))  # [B, N]
+            )  # [B, H, N]
 
             one_hot_max_att = jax.nn.one_hot(
                 max_att_idx,
                 num_classes=self._memory_size,
-            )  # [B, N, S]
-            pop_requested = node_wise_pop_strengths * one_hot_max_att  # [B, N, S]
+            )  # [B, H, N, S]
+            pop_requested = (
+                jnp.expand_dims(node_wise_pop_strengths, axis=1)
+                * one_hot_max_att
+                / self.nb_heads
+            )  # [B, H, N, S]
         elif self.aggregation_technique == "weighted":
-            pop_requested = node_wise_pop_strengths * coefs  # [B, N, S]
+            pop_requested = (
+                jnp.expand_dims(node_wise_pop_strengths, axis=1) * coefs / self.nb_heads
+            )  # [B, H, N, S]
         else:
             raise ValueError(
                 "Unknown memory aggregation technique " + self.aggregation_technique
@@ -1295,22 +1294,33 @@ class PriorityQueueV2_2(MemoryModule):
         total_pop_requested = jnp.sum(
             pop_requested,
             axis=1,
-        )  # [B, S]
-        recp_total_pop_requested = 1 / (total_pop_requested + SMALL_NUMBER)
-        pop_proportions = pop_requested * jnp.expand_dims(
-            recp_total_pop_requested, axis=1
         )  # [B, N, S]
+        total_pop_requested = jnp.sum(
+            total_pop_requested,
+            axis=1,
+        )  # [B, S]
+        recp_total_pop_requested = 1 / (total_pop_requested + SMALL_NUMBER)  # [B, S]
+        pop_proportions = pop_requested * jnp.expand_dims(
+            recp_total_pop_requested, axis=[1, 2]
+        )  # [B, H, N, S]
 
         pop_given = jnp.minimum(
             prev_state.read_strengths, total_pop_requested
         )  # [B, S]
-        output_coefs = pop_proportions * jnp.expand_dims(pop_given, axis=1)  # [B, N, S]
-        output = jnp.expand_dims(output_coefs, axis=3) * jnp.expand_dims(
-            prev_state.memory_values, axis=1
-        )  # [B, N, S, F']
-        output = jnp.sum(output, axis=2)  # [B, N, F']
+        output_coefs = pop_proportions * jnp.expand_dims(pop_given, axis=[1, 2])  # [B, H, N, S]
+        output = jnp.expand_dims(output_coefs, axis=-1) * jnp.expand_dims(
+            prev_state.memory_values, axis=[1, 2]
+        )  # [B, H, N, S, F']
+        output = jnp.sum(output, axis=3)  # [B, H, N, F']
         new_read_strengths -= pop_given
-        output = output_proj(output)
+        if self.message_per_head:
+            output = output_proj(output)  # [B, H, N, O]
+        else:
+            output = jnp.transpose(output, [0, 2, 1, 3])
+            output = jnp.reshape(
+                output, (batch_size, nb_nodes, self.nb_heads * self._embedding_size)
+            )
+            output = output_proj(output)
 
         new_memory_values = prev_state.memory_values + jnp.expand_dims(
             write_values, axis=1
