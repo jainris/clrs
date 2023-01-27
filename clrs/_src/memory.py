@@ -821,10 +821,10 @@ class PriorityQueue_ProperHeads(MemoryModule):
                 max_att_idx,
                 num_classes=self._memory_size,
             )  # [B, H, N, S]
-            val = prev_state.memory_values
+            val = jnp.expand_dims(prev_state.memory_values, axis=1)  # [B, 1, S, F']
             output = jnp.matmul(one_hot_max_att, val)  # [B, H, N, F']
         elif self.aggregation_technique == "weighted":
-            val = prev_state.memory_values
+            val = jnp.expand_dims(prev_state.memory_values, axis=1)  # [B, 1, S, F']
             # val = jnp.expand_dims(prev_state.memory_values, axis=0) # [1, S, F']
             # val = jnp.tile(prev_state.memory_values, (batch_size, 1, 1, 1)) # [B, S, F']
             # print("val shape: {}".format(val.shape))
