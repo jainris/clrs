@@ -731,6 +731,129 @@ class PriorityQueue_CopyNodeFeatures(MemoryModule):
         )
 
 
+class PriorityQueue_ProperHeads(MemoryModule):
+    def __init__(
+        self,
+        output_size: int,
+        embedding_size: int,
+        memory_size: int,
+        nb_heads: int,
+        aggregation_technique: str = "max",
+        message_per_head: bool = False,
+        name: str = "neural_priority_queue",
+    ):
+        super().__init__(name=name)
+        self._output_size = output_size
+        self._embedding_size = embedding_size
+        self._memory_size = memory_size
+        self.nb_heads = nb_heads
+        self.aggregation_technique = aggregation_technique
+        self.message_per_head = message_per_head
+
+    def initial_state(self, batch_size: int, **kwargs) -> PriorityQueueState:
+        memory_values = jnp.zeros((batch_size, self._memory_size, self._embedding_size))
+        write_mask = jax.nn.one_hot(
+            [0] * batch_size,
+            num_classes=self._memory_size,
+            dtype=jnp.float32,
+        )  # [B, S]
+        bias_mask = jnp.zeros((batch_size, self._memory_size))
+        return PriorityQueueState(
+            memory_values=memory_values, write_mask=write_mask, bias_mask=bias_mask
+        )
+
+    def __call__(
+        self, z: _Array, prev_state: PriorityQueueState, **kwargs
+    ) -> Tuple[_Array, PriorityQueueState]:
+        # z.shape: [B, N, _]
+        batch_size, nb_nodes, nb_z_fts = z.shape
+        if prev_state is None:
+            prev_state = self.initial_state(batch_size=batch_size)
+
+        # push_proj = hk.Linear(output_size=1)
+        # pop_proj = hk.Linear(output_size=1)
+        value_proj = hk.Linear(output_size=self._embedding_size)
+        output_proj = hk.Linear(output_size=self._output_size)
+
+        # push_strengths = jax.nn.sigmoid(push_proj(z))
+        # pop_strengths = jax.nn.sigmoid(pop_proj(z))
+
+        write_values = value_proj(z.reshape(batch_size * nb_nodes, nb_z_fts))
+        write_values = jnp.reshape(
+            write_values, (batch_size, nb_nodes, self._embedding_size)
+        )
+        write_values = jnp.sum(write_values, axis=1)
+        write_values = jnp.tanh(write_values)
+
+        a_1 = hk.Linear(self.nb_heads)
+        a_2 = hk.Linear(self.nb_heads)
+
+        att_1 = jnp.expand_dims(a_1(z), axis=-1)
+        att_2 = jnp.expand_dims(a_2(prev_state.memory_values), axis=-1)  # [B, S, H, 1]
+
+        # [B, H, N, 1] + [B, H, 1, S]  = [B, H, N, S]
+        logits = jnp.transpose(att_1, (0, 2, 1, 3)) + jnp.transpose(att_2, (0, 2, 3, 1))
+
+        # Masking out the unwritten memory cells
+        # mem_idx = jnp.argmax(prev_state.write_mask, axis=-1)  # [B]
+        # fill_ones_till = jax.vmap(
+        #     lambda x: jnp.sum(jax.nn.one_hot(jnp.arange(x)), axis=0), 0, 0
+        # )
+        # bias_mat = (fill_ones_till(mem_idx) - 1) * 1e9  # [B, S]
+        bias_mat = (prev_state.bias_mask - 1) * 1e9  # [B, S]
+        bias_mat = jnp.expand_dims(bias_mat, 1)  # [B, 1, S]
+        bias_mat = jnp.expand_dims(bias_mat, 1)  # [B, 1, 1, S]
+        bias_mat = jnp.tile(bias_mat, (1, self.nb_heads, nb_nodes, 1))  # [B, H, N, S]
+
+        # bias_mat = jnp.zeros((nb_nodes, self.nb_heads, batch_size, self._memory_size)) # [N, H, B, S]
+        # bias_mat[:, :, mem_idx:] = -1e9
+
+        coefs = jax.nn.softmax(
+            jax.nn.leaky_relu(logits) + bias_mat, axis=-1
+        )  # [B, H, N, S]
+
+        if self.aggregation_technique == "max":
+            max_att_idx = jnp.argmax(
+                coefs,
+                axis=-1,
+            )  # [B, H, N]
+            one_hot_max_att = jax.nn.one_hot(
+                max_att_idx,
+                num_classes=self._memory_size,
+            )  # [B, H, N, S]
+            val = prev_state.memory_values
+            output = jnp.matmul(one_hot_max_att, val)  # [B, H, N, F']
+        elif self.aggregation_technique == "weighted":
+            val = prev_state.memory_values
+            # val = jnp.expand_dims(prev_state.memory_values, axis=0) # [1, S, F']
+            # val = jnp.tile(prev_state.memory_values, (batch_size, 1, 1, 1)) # [B, S, F']
+            # print("val shape: {}".format(val.shape))
+            output = jnp.matmul(coefs, val)  # [B, H, N, F']
+        else:
+            raise ValueError(
+                "Unknown memory aggregation technique " + self.aggregation_technique
+            )
+        if self.message_per_head:
+            output = output_proj(output)  # [B, H, N, O]
+        else:
+            output = jnp.transpose(output, [0, 2, 1, 3])
+            output = jnp.reshape(output, (batch_size, nb_nodes, self.nb_heads * self._embedding_size))
+            output = output_proj(output)
+
+        new_memory_values = prev_state.memory_values + jnp.expand_dims(
+            write_values, axis=1
+        ) * jnp.expand_dims(prev_state.write_mask, axis=2)
+        new_write_mask = jnp.roll(prev_state.write_mask, shift=1, axis=1)
+
+        new_bias_mask = jnp.minimum((prev_state.bias_mask + prev_state.write_mask), 1)
+
+        return output, PriorityQueueState(
+            memory_values=new_memory_values,
+            write_mask=new_write_mask,
+            bias_mask=new_bias_mask,
+        )
+
+
 class PriorityQueueV1(MemoryModule):
     def __init__(
         self,

@@ -29,6 +29,7 @@ from clrs._src.memory import MLPQueueMemory
 from clrs._src.memory import MLPDequeMemory
 from clrs._src.memory import PriorityQueue
 from clrs._src.memory import PriorityQueue_CopyNodeFeatures
+from clrs._src.memory import PriorityQueue_ProperHeads
 from clrs._src.memory import PriorityQueueV1
 from clrs._src.memory import PriorityQueueV2
 from clrs._src.memory import PriorityQueueV2_2
@@ -487,6 +488,24 @@ class PGN(Processor):
           aggregation_technique=self.memory_module_args['aggregation_technique'],
           push_agg_technique="weighted",
           proj_output=True,
+        )
+      elif self.memory_module == 'priority_queue_ph':
+        memory_module = PriorityQueue_ProperHeads(
+          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
+          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
+          memory_size=self.memory_module_args['memory_size'],
+          nb_heads=self.memory_module_args['nb_heads'],
+          aggregation_technique=self.memory_module_args['aggregation_technique'],
+          message_per_head=False,
+        )
+      elif self.memory_module == 'priority_queue_ph_mph':
+        memory_module = PriorityQueue_ProperHeads(
+          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
+          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
+          memory_size=self.memory_module_args['memory_size'],
+          nb_heads=self.memory_module_args['nb_heads'],
+          aggregation_technique=self.memory_module_args['aggregation_technique'],
+          message_per_head=True,
         )
       elif self.memory_module == 'priority_queue_v1':
         memory_module = PriorityQueueV1(
