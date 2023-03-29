@@ -117,7 +117,8 @@ flags.DEFINE_enum('processor_type', 'triplet_mpnn',
                    'triplet_mpnn', 'triplet_pgn', 'triplet_pgn_mask',
                    'gat', 'gatv2', 'gat_full', 'gatv2_full',
                    'gpgn', 'gpgn_mask', 'gmpnn',
-                   'triplet_gpgn', 'triplet_gpgn_mask', 'triplet_gmpnn'],
+                   'triplet_gpgn', 'triplet_gpgn_mask', 'triplet_gmpnn',
+                   'mpnn_pq_hardcoded', 'pgn_pq_hardcoded'],
                   'Processor type to use as the network P.')
 flags.DEFINE_enum('processor_memory', 'none',
                   ['none', 'stack', 'queue', 'deque', 'priority_queue',
@@ -126,7 +127,7 @@ flags.DEFINE_enum('processor_memory', 'none',
                    'priority_queue_v2_sv', 'priority_queue_ph', 'priority_queue_ph_mph',
                    'priority_queue_cp_max', 'priority_queue_cp_max_proj',
                    'priority_queue_cp_weighted', 'priority_queue_cp_weighted_proj',
-                   'priority_queue_atv2', 'priority_queue_v2_sig_atv2'],
+                   'priority_queue_atv2', 'priority_queue_v2_sig_atv2', 'priority_queue_hardcoded'],
                   'Which memory module to use with the processor.')
 flags.DEFINE_integer('pmem_size', 20, 'Max size of memory.')
 flags.DEFINE_integer('pmem_embedding_size', None, 'Embedding size of memory module.')

@@ -1292,6 +1292,10 @@ def dijkstra_pq(A: _Array, s: int) -> _Out:
           d[v] = d[u] + A[u, v]
           in_queue[v] = 1
 
+  if len(us) < A.shape[0]:
+    us += [0] * (A.shape[0] - len(us))
+    us_pi += [0] * (A.shape[0] - len(us_pi))
+
   us = np.array(us)
   us_pi = np.array(us_pi)
 

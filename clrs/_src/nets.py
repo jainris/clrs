@@ -392,9 +392,15 @@ class Net(hk.Module):
           assert dp.type_ != _Type.SOFT_POINTER
           adj_mat = encoders.accum_adj_mat(dp, adj_mat)
           encoder = encs[dp.name]
-          edge_fts = encoders.accum_edge_fts(encoder, dp, edge_fts)
-          node_fts = encoders.accum_node_fts(encoder, dp, node_fts)
-          graph_fts = encoders.accum_graph_fts(encoder, dp, graph_fts)
+          if dp.name == "us":
+            # Hardcoded inputs
+            us = dp.data
+          elif dp.name == "us_pi":
+            us_pi = dp.data
+          else:
+            edge_fts = encoders.accum_edge_fts(encoder, dp, edge_fts)
+            node_fts = encoders.accum_node_fts(encoder, dp, node_fts)
+            graph_fts = encoders.accum_graph_fts(encoder, dp, graph_fts)
         except Exception as e:
           raise Exception(f'Failed to process {dp}') from e
 
@@ -409,6 +415,8 @@ class Net(hk.Module):
           nxt_hidden,
           batch_size=batch_size,
           nb_nodes=nb_nodes,
+          us=us,
+          us_pi=us_pi,
       )
 
     if not repred:      # dropout only on training

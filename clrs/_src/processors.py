@@ -37,6 +37,7 @@ from clrs._src.memory import PriorityQueueV2_ProperHeads
 from clrs._src.memory import PriorityQueueV2_single_value
 from clrs._src.memory import PriorityQueueV2_Sigmoid
 from clrs._src.memory import PriorityQueueV2_Sigmoid_atv2
+from clrs._src.memory import PriorityQueue_HardCoded
 
 
 _Array = chex.Array
@@ -642,6 +643,163 @@ class PGN(Processor):
     return ret, tri_msgs
 
 
+class PGN_pq_hardcoded(Processor):
+  """Pointer Graph Networks (Veličković et al., NeurIPS 2020)."""
+
+  def __init__(
+      self,
+      out_size: int,
+      mid_size: Optional[int] = None,
+      mid_act: Optional[_Fn] = None,
+      activation: Optional[_Fn] = jax.nn.relu,
+      reduction: _Fn = jnp.max,
+      msgs_mlp_sizes: Optional[List[int]] = None,
+      use_ln: bool = False,
+      use_triplets: bool = False,
+      nb_triplet_fts: int = 8,
+      gated: bool = False,
+      memory_module_args: dict = dict(),
+      memory_module: str = 'none',
+      name: str = 'mpnn_aggr',
+  ):
+    super().__init__(name=name)
+    if mid_size is None:
+      self.mid_size = out_size
+    else:
+      self.mid_size = mid_size
+    self.out_size = out_size
+    self.mid_act = mid_act
+    self.activation = activation
+    self.reduction = reduction
+    self._msgs_mlp_sizes = msgs_mlp_sizes
+    self.use_ln = use_ln
+    self.use_triplets = use_triplets
+    self.nb_triplet_fts = nb_triplet_fts
+    self.gated = gated
+    self.memory_module = memory_module
+    self.memory_module_args = memory_module_args
+    self.memory_state = None
+
+
+  def __call__(
+      self,
+      node_fts: _Array,
+      edge_fts: _Array,
+      graph_fts: _Array,
+      adj_mat: _Array,
+      hidden: _Array,
+      us: _Array,
+      us_pi: _Array,
+      **unused_kwargs,
+  ) -> _Array:
+    """MPNN inference step."""
+
+    b, n, _ = node_fts.shape
+    assert edge_fts.shape[:-1] == (b, n, n)
+    assert graph_fts.shape[:-1] == (b,)
+    assert adj_mat.shape == (b, n, n)
+
+    z = jnp.concatenate([node_fts, hidden], axis=-1)
+    m_1 = hk.Linear(self.mid_size)
+    m_2 = hk.Linear(self.mid_size)
+    m_e = hk.Linear(self.mid_size)
+    m_g = hk.Linear(self.mid_size)
+
+    o1 = hk.Linear(self.out_size)
+    o2 = hk.Linear(self.out_size)
+
+    msg_1 = m_1(z)
+    msg_2 = m_2(z)
+    msg_e = m_e(edge_fts)
+    msg_g = m_g(graph_fts)
+
+    tri_msgs = None
+
+    if self.use_triplets:
+      # Triplet messages, as done by Dudzik and Velickovic (2022)
+      triplets = get_triplet_msgs(z, edge_fts, graph_fts, self.nb_triplet_fts)
+
+      o3 = hk.Linear(self.out_size)
+      tri_msgs = o3(jnp.max(triplets, axis=1))  # (B, N, N, H)
+
+      if self.activation is not None:
+        tri_msgs = self.activation(tri_msgs)
+
+    msgs = (
+        jnp.expand_dims(msg_1, axis=1) + jnp.expand_dims(msg_2, axis=2) +
+        msg_e + jnp.expand_dims(msg_g, axis=(1, 2)))
+
+    if self.memory_module == 'priority_queue_hardcoded':
+      memory_module = PriorityQueue_HardCoded(
+        output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
+        embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
+      )
+    else:
+      raise ValueError('Unexpected processor memory kind ' + self.memory_module)
+    read_values, self.memory_state = memory_module(z, us, us_pi, self.memory_state)
+    if read_values.ndim == 3:
+      # [B, N, F]
+      read_values = jnp.expand_dims(read_values, axis=1) # [B, 1, N, F]
+      if self.memory_module_args['memory_send_to'] == "all":
+        nb_nodes = read_values.shape[2]
+        read_values = jnp.tile(read_values, (1, nb_nodes, 1, 1))  # [B, N, N, F]
+      else:
+        assert self.memory_module_args['memory_send_to'] == "self", "Invalid memory-send-to value obtained."
+
+    if not self.memory_module_args['direct_output']:
+      read_values = m_1(read_values)  # [B, M, N, F]
+      read_values = (
+        read_values + jnp.expand_dims(msg_2, axis=2) + jnp.expand_dims(msg_g, axis=(1, 2))
+      )  # [B, M, N, F]
+
+    nb_new_messages = read_values.shape[1]
+    msgs = jnp.concatenate([msgs, read_values], axis=1)
+    adj_mat = jnp.pad(
+      adj_mat,
+      ((0, 0), (0, nb_new_messages), (0, 0)),
+      mode='constant',
+      constant_values=1
+    )
+
+    if self._msgs_mlp_sizes is not None:
+      msgs = hk.nets.MLP(self._msgs_mlp_sizes)(jax.nn.relu(msgs))
+
+    if self.mid_act is not None:
+      msgs = self.mid_act(msgs)
+
+    if self.reduction == jnp.mean:
+      msgs = jnp.sum(msgs * jnp.expand_dims(adj_mat, -1), axis=1)
+      msgs = msgs / jnp.sum(adj_mat, axis=-1, keepdims=True)
+    elif self.reduction == jnp.max:
+      maxarg = jnp.where(jnp.expand_dims(adj_mat, -1),
+                         msgs,
+                         -BIG_NUMBER)
+      msgs = jnp.max(maxarg, axis=1)
+    else:
+      msgs = self.reduction(msgs * jnp.expand_dims(adj_mat, -1), axis=1)
+
+    h_1 = o1(z)
+    h_2 = o2(msgs)
+
+    ret = h_1 + h_2
+
+    if self.activation is not None:
+      ret = self.activation(ret)
+
+    if self.use_ln:
+      ln = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)
+      ret = ln(ret)
+
+    if self.gated:
+      gate1 = hk.Linear(self.out_size)
+      gate2 = hk.Linear(self.out_size)
+      gate3 = hk.Linear(self.out_size, b_init=hk.initializers.Constant(-3))
+      gate = jax.nn.sigmoid(gate3(jax.nn.relu(gate1(z) + gate2(msgs))))
+      ret = ret * gate + hidden * (1-gate)
+
+    return ret, tri_msgs
+
+
 class DeepSets(PGN):
   """Deep Sets (Zaheer et al., NeurIPS 2017)."""
 
@@ -659,6 +817,16 @@ class MPNN(PGN):
                adj_mat: _Array, hidden: _Array, **unused_kwargs) -> _Array:
     adj_mat = jnp.ones_like(adj_mat)
     return super().__call__(node_fts, edge_fts, graph_fts, adj_mat, hidden)
+
+
+class MPNN_pq_hardcoded(PGN_pq_hardcoded):
+  """Message-Passing Neural Network (Gilmer et al., ICML 2017)."""
+
+  def __call__(self, node_fts: _Array, edge_fts: _Array, graph_fts: _Array,
+               adj_mat: _Array, hidden: _Array, us: _Array, us_pi: _Array,
+               **unused_kwargs) -> _Array:
+    adj_mat = jnp.ones_like(adj_mat)
+    return super().__call__(node_fts, edge_fts, graph_fts, adj_mat, hidden, us, us_pi)
 
 
 class PGNMask(PGN):
@@ -1040,6 +1208,26 @@ def get_processor_factory(kind: str,
           use_triplets=True,
           nb_triplet_fts=nb_triplet_fts,
           gated=True,
+      )
+    elif kind == 'mpnn_pq_hardcoded':
+      processor = MPNN_pq_hardcoded(
+          out_size=out_size,
+          msgs_mlp_sizes=[out_size, out_size],
+          use_ln=use_ln,
+          use_triplets=False,
+          nb_triplet_fts=0,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
+      )
+    elif kind == 'pgn_pq_hardcoded':
+      processor = PGN_pq_hardcoded(
+          out_size=out_size,
+          msgs_mlp_sizes=[out_size, out_size],
+          use_ln=use_ln,
+          use_triplets=False,
+          nb_triplet_fts=0,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     else:
       raise ValueError('Unexpected processor kind ' + kind)
