@@ -466,6 +466,7 @@ def main(unused_argv):
 
   # Training loop.
   best_score = -1.0
+  best_loss = np.inf
   current_train_items = [0] * len(FLAGS.algorithms)
   step = 0
   next_eval = 0
@@ -552,6 +553,12 @@ def main(unused_argv):
         train_model.save_model('best.pkl')
       else:
         logging.info('Not saving new best model, %s', msg)
+      if cur_loss < best_loss:
+        best_loss = cur_loss
+        logging.info('Checkpointing best loss model')
+        train_model.save_model('best_loss.pkl')
+      else:
+        logging.info('Not saving new best loss model')
 
     step += 1
     length_idx = (length_idx + 1) % len(train_lengths)
@@ -575,6 +582,23 @@ def main(unused_argv):
 
   logging.info('Restoring best model from checkpoint...')
   eval_model.restore_model('best.pkl', only_load_processor=False)
+
+  for algo_idx in range(len(train_samplers)):
+    common_extras = {'examples_seen': current_train_items[algo_idx],
+                     'step': step,
+                     'algorithm': FLAGS.algorithms[algo_idx]}
+
+    new_rng_key, rng_key = jax.random.split(rng_key)
+    test_stats = collect_and_eval(
+        test_samplers[algo_idx],
+        functools.partial(eval_model.predict, algorithm_index=algo_idx),
+        test_sample_counts[algo_idx],
+        new_rng_key,
+        extras=common_extras)
+    logging.info('(test) algo %s : %s', FLAGS.algorithms[algo_idx], test_stats)
+
+  logging.info('Restoring best loss model from checkpoint...')
+  eval_model.restore_model('best_loss.pkl', only_load_processor=False)
 
   for algo_idx in range(len(train_samplers)):
     common_extras = {'examples_seen': current_train_items[algo_idx],
