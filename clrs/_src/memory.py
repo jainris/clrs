@@ -2026,6 +2026,7 @@ class PriorityQueue_HardCoded(MemoryModule):
         u_fts = node_proj(z)  # [B, N, F']
         u_pi_fts = z * jnp.expand_dims(u_pi, axis=2)  # [B, N, F]
         u_pi_fts = jnp.sum(u_pi_fts, axis=1, keepdims=True)  # [B, 1, F]
+        u_pi_fts = parent_proj(u_pi_fts)  # [B, 1, F']
 
         output = u_fts + u_pi_fts  # [B, N, F]
         output = output_proj(output)
