@@ -759,13 +759,17 @@ class PGN_pq_hardcoded(Processor):
       )  # [B, M, N, F]
 
     nb_new_messages = read_values.shape[1]
-    msgs = jnp.concatenate([msgs, read_values], axis=1)
-    adj_mat = jnp.pad(
-      adj_mat,
-      ((0, 0), (0, nb_new_messages), (0, 0)),
-      mode='constant',
-      constant_values=1
-    )
+    if self.memory_module_args['only_pq_messages']:
+      msgs = read_values
+      adj_mat = jnp.ones((b, nb_new_messages, n), dtype=adj_mat.dtype)
+    else:
+      msgs = jnp.concatenate([msgs, read_values], axis=1)
+      adj_mat = jnp.pad(
+        adj_mat,
+        ((0, 0), (0, nb_new_messages), (0, 0)),
+        mode='constant',
+        constant_values=1
+      )
 
     if self._msgs_mlp_sizes is not None:
       msgs = hk.nets.MLP(self._msgs_mlp_sizes)(jax.nn.relu(msgs))
