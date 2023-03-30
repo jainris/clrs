@@ -39,6 +39,7 @@ from clrs._src.memory import PriorityQueueV2_Sigmoid
 from clrs._src.memory import PriorityQueueV2_Sigmoid_atv2
 from clrs._src.memory import PriorityQueue_HardCoded
 from clrs._src.memory import PriorityQueue_HardCoded_2
+from clrs._src.memory import PriorityQueue_HardCoded_2_return_u
 
 
 _Array = chex.Array
@@ -740,17 +741,22 @@ class PGN_pq_hardcoded(Processor):
         output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
         embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
       )
+    elif self.memory_module == 'priority_queue_hardcoded_2_return_u':
+      memory_module = PriorityQueue_HardCoded_2_return_u(
+        output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
+        embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
+      )
     else:
       raise ValueError('Unexpected processor memory kind ' + self.memory_module)
-    read_values, self.memory_state = memory_module(z, us, us_pi, self.memory_state)
+    if self.memory_module == 'priority_queue_hardcoded_2_return_u':
+      read_values, mem_adj_mat, self.memory_state = memory_module(z, us, us_pi, self.memory_state)
+    else:
+      read_values, self.memory_state = memory_module(z, us, us_pi, self.memory_state)
+      mem_adj_mat = None
     if read_values.ndim == 3:
       # [B, N, F]
       read_values = jnp.expand_dims(read_values, axis=1) # [B, 1, N, F]
-      if self.memory_module_args['memory_send_to'] == "all":
-        nb_nodes = read_values.shape[2]
-        read_values = jnp.tile(read_values, (1, nb_nodes, 1, 1))  # [B, N, N, F]
-      else:
-        assert self.memory_module_args['memory_send_to'] == "self", "Invalid memory-send-to value obtained."
+      assert self.memory_module_args['memory_send_to'] == "self", "Only support send to self for hardcoded."
 
     if not self.memory_module_args['direct_output']:
       read_values = m_1(read_values)  # [B, M, N, F]
@@ -759,17 +765,26 @@ class PGN_pq_hardcoded(Processor):
       )  # [B, M, N, F]
 
     nb_new_messages = read_values.shape[1]
-    if self.memory_module_args['only_pq_messages']:
-      msgs = read_values
-      adj_mat = jnp.ones((b, nb_new_messages, n), dtype=adj_mat.dtype)
+    if mem_adj_mat is None:
+      if self.memory_module_args['only_pq_messages']:
+        msgs = read_values
+        adj_mat = jnp.ones((b, nb_new_messages, n), dtype=adj_mat.dtype)
+      else:
+        msgs = jnp.concatenate([msgs, read_values], axis=1)
+        adj_mat = jnp.pad(
+          adj_mat,
+          ((0, 0), (0, nb_new_messages), (0, 0)),
+          mode='constant',
+          constant_values=1
+        )
     else:
-      msgs = jnp.concatenate([msgs, read_values], axis=1)
-      adj_mat = jnp.pad(
-        adj_mat,
-        ((0, 0), (0, nb_new_messages), (0, 0)),
-        mode='constant',
-        constant_values=1
-      )
+      if self.memory_module_args['only_pq_messages']:
+        msgs = read_values
+        adj_mat = jnp.ones((b, nb_new_messages, n), dtype=adj_mat.dtype)
+      else:
+        assert nb_new_messages == 1, "Currently only support 1 new message when returning the memory adj_mat"
+        msgs = jnp.concatenate([msgs, read_values], axis=1)
+        adj_mat = jnp.concatenate([adj_mat, jnp.expand_dims(mem_adj_mat, axis=1)], axis=1)
 
     if self._msgs_mlp_sizes is not None:
       msgs = hk.nets.MLP(self._msgs_mlp_sizes)(jax.nn.relu(msgs))
@@ -791,6 +806,8 @@ class PGN_pq_hardcoded(Processor):
     h_1 = o1(z)
     h_2 = o2(msgs)
 
+    if mem_adj_mat is not None and self.memory_module_args['only_pq_messages']:
+      h_2 = jnp.expand_dims(mem_adj_mat, axis=2) * h_2
     ret = h_1 + h_2
 
     if self.activation is not None:
