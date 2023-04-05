@@ -24,19 +24,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from clrs._src.memory import MLPStackMemory
-from clrs._src.memory import MLPQueueMemory
-from clrs._src.memory import MLPDequeMemory
-from clrs._src.memory import PriorityQueue
-from clrs._src.memory import PriorityQueue_CopyNodeFeatures
-from clrs._src.memory import PriorityQueue_ProperHeads
-from clrs._src.memory import PriorityQueue_atv2
-from clrs._src.memory import PriorityQueueV1
-from clrs._src.memory import PriorityQueueV2
-from clrs._src.memory import PriorityQueueV2_ProperHeads
-from clrs._src.memory import PriorityQueueV2_single_value
-from clrs._src.memory import PriorityQueueV2_Sigmoid
-from clrs._src.memory import PriorityQueueV2_Sigmoid_atv2
+from clrs._src.memory import update_using_memory
 
 
 _Array = chex.Array
@@ -98,6 +86,8 @@ class GAT(Processor):
       activation: Optional[_Fn] = jax.nn.relu,
       residual: bool = True,
       use_ln: bool = False,
+      memory_module_args: dict = dict(),
+      memory_module: str = 'none',
       name: str = 'gat_aggr',
   ):
     super().__init__(name=name)
@@ -109,6 +99,9 @@ class GAT(Processor):
     self.activation = activation
     self.residual = residual
     self.use_ln = use_ln
+    self.memory_module = memory_module
+    self.memory_module_args = memory_module_args
+    self.memory_state = None
 
   def __call__(
       self,
@@ -158,9 +151,30 @@ class GAT(Processor):
         jnp.expand_dims(att_g, axis=-1)       # + [B, H, 1, 1]
     )                                         # = [B, H, N, N]
     coefs = jax.nn.softmax(jax.nn.leaky_relu(logits) + bias_mat, axis=-1)
-    ret = jnp.matmul(coefs, values)  # [B, H, N, F]
-    ret = jnp.transpose(ret, (0, 2, 1, 3))  # [B, N, H, F]
-    ret = jnp.reshape(ret, ret.shape[:-2] + (self.out_size,))  # [B, N, H*F]
+    if self.memory_module == "none":
+      ret = jnp.matmul(coefs, values)  # [B, H, N, F]
+      ret = jnp.transpose(ret, (0, 2, 1, 3))  # [B, N, H, F]
+      ret = jnp.reshape(ret, ret.shape[:-2] + (self.out_size,))  # [B, N, H*F]
+    else:
+      assert self.memory_module_args["direct_output"], "Non-direct output not supported for GAT"
+      # We need to compute the messages first
+      msgs = jnp.expand_dims(coefs, axis=-1) * jnp.expand_dims(values, axis=2)  # [B, H, N, N, F]
+      msgs = jnp.transpose(msgs, (0, 3, 2, 1, 4))  # [B, N, N, H, F]
+      msgs = jnp.reshape(msgs, msgs.shape[:-2] + (self.out_size,))  # [B, N, N, H*F]
+      msgs, adj_mat, self.memory_state = update_using_memory(
+        z=z,
+        msgs=msgs,
+        adj_mat=adj_mat,
+        memory_state=self.memory_state,
+        memory_module=self.memory_module,
+        memory_module_args=self.memory_module_args,
+        message_dimension=msgs.shape[-1],
+        feature_dimension=z.shape[-1],
+        message_enc=None,
+        edge_msgs=None,
+        graph_msgs=None,
+      )
+      ret = jnp.sum(msgs * jnp.expand_dims(adj_mat, -1), axis=1)  # [B, N, H*F]
 
     if self.residual:
       ret += skip(z)
@@ -195,6 +209,8 @@ class GATv2(Processor):
       activation: Optional[_Fn] = jax.nn.relu,
       residual: bool = True,
       use_ln: bool = False,
+      memory_module_args: dict = dict(),
+      memory_module: str = 'none',
       name: str = 'gatv2_aggr',
   ):
     super().__init__(name=name)
@@ -213,6 +229,9 @@ class GATv2(Processor):
     self.activation = activation
     self.residual = residual
     self.use_ln = use_ln
+    self.memory_module = memory_module
+    self.memory_module_args = memory_module_args
+    self.memory_state = None
 
   def __call__(
       self,
@@ -286,9 +305,30 @@ class GATv2(Processor):
     logits = jnp.stack(logit_heads, axis=1)  # [B, H, N, N]
 
     coefs = jax.nn.softmax(logits + bias_mat, axis=-1)
-    ret = jnp.matmul(coefs, values)  # [B, H, N, F]
-    ret = jnp.transpose(ret, (0, 2, 1, 3))  # [B, N, H, F]
-    ret = jnp.reshape(ret, ret.shape[:-2] + (self.out_size,))  # [B, N, H*F]
+    if self.memory_module == "none":
+      ret = jnp.matmul(coefs, values)  # [B, H, N, F]
+      ret = jnp.transpose(ret, (0, 2, 1, 3))  # [B, N, H, F]
+      ret = jnp.reshape(ret, ret.shape[:-2] + (self.out_size,))  # [B, N, H*F]
+    else:
+      assert self.memory_module_args["direct_output"], "Non-direct output not supported for GAT"
+      # We need to compute the messages first
+      msgs = jnp.expand_dims(coefs, axis=-1) * jnp.expand_dims(values, axis=2)  # [B, H, N, N, F]
+      msgs = jnp.transpose(msgs, (0, 3, 2, 1, 4))  # [B, N, N, H, F]
+      msgs = jnp.reshape(msgs, msgs.shape[:-2] + (self.out_size,))  # [B, N, N, H*F]
+      msgs, adj_mat, self.memory_state = update_using_memory(
+        z=z,
+        msgs=msgs,
+        adj_mat=adj_mat,
+        memory_state=self.memory_state,
+        memory_module=self.memory_module,
+        memory_module_args=self.memory_module_args,
+        message_dimension=msgs.shape[-1],
+        feature_dimension=z.shape[-1],
+        message_enc=None,
+        edge_msgs=None,
+        graph_msgs=None,
+      )
+      ret = jnp.sum(msgs * jnp.expand_dims(adj_mat, -1), axis=1)  # [B, N, H*F]
 
     if self.residual:
       ret += skip(z)
@@ -425,183 +465,19 @@ class PGN(Processor):
         jnp.expand_dims(msg_1, axis=1) + jnp.expand_dims(msg_2, axis=2) +
         msg_e + jnp.expand_dims(msg_g, axis=(1, 2)))
 
-    if self.memory_module != 'none':
-      if self.memory_module == 'stack':
-        memory_module = MLPStackMemory(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1],
-          memory_size=self.memory_module_args['memory_size'],
-        )
-      elif self.memory_module == 'queue':
-        memory_module = MLPQueueMemory(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1],
-          memory_size=self.memory_module_args['memory_size'],
-        )
-      elif self.memory_module == 'deque':
-        memory_module = MLPDequeMemory(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1],
-          memory_size=self.memory_module_args['memory_size'],
-        )
-      elif self.memory_module == 'priority_queue':
-        memory_module = PriorityQueue(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-        )
-      elif self.memory_module == 'priority_queue_cp_max':
-        memory_module = PriorityQueue_CopyNodeFeatures(
-          output_size=z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-          push_agg_technique="max",
-          proj_output=False,
-        )
-      elif self.memory_module == 'priority_queue_cp_weighted':
-        memory_module = PriorityQueue_CopyNodeFeatures(
-          output_size=z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-          push_agg_technique="weighted",
-          proj_output=False,
-        )
-      elif self.memory_module == 'priority_queue_cp_max_proj':
-        memory_module = PriorityQueue_CopyNodeFeatures(
-          output_size=z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-          push_agg_technique="max",
-          proj_output=True,
-        )
-      elif self.memory_module == 'priority_queue_cp_weighted_proj':
-        memory_module = PriorityQueue_CopyNodeFeatures(
-          output_size=z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-          push_agg_technique="weighted",
-          proj_output=True,
-        )
-      elif self.memory_module == 'priority_queue_ph':
-        memory_module = PriorityQueue_ProperHeads(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-          message_per_head=False,
-        )
-      elif self.memory_module == 'priority_queue_ph_mph':
-        memory_module = PriorityQueue_ProperHeads(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-          message_per_head=True,
-        )
-      elif self.memory_module == 'priority_queue_atv2':
-        memory_module = PriorityQueue_atv2(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-        )
-      elif self.memory_module == 'priority_queue_v1':
-        memory_module = PriorityQueueV1(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-        )
-      elif self.memory_module == 'priority_queue_v2':
-        memory_module = PriorityQueueV2(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-        )
-      elif self.memory_module == 'priority_queue_v2_ph':
-        memory_module = PriorityQueueV2_ProperHeads(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-          message_per_head=False,
-        )
-      elif self.memory_module == 'priority_queue_v2_ph_mph':
-        memory_module = PriorityQueueV2_ProperHeads(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-          message_per_head=True,
-        )
-      elif self.memory_module == 'priority_queue_v2_sv':
-        memory_module = PriorityQueueV2_single_value(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-        )
-      elif self.memory_module == 'priority_queue_v2_sig':
-        memory_module = PriorityQueueV2_Sigmoid(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-        )
-      elif self.memory_module == 'priority_queue_v2_sig_atv2':
-        memory_module = PriorityQueueV2_Sigmoid_atv2(
-          output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
-          embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
-          memory_size=self.memory_module_args['memory_size'],
-          nb_heads=self.memory_module_args['nb_heads'],
-          aggregation_technique=self.memory_module_args['aggregation_technique'],
-        )
-      else:
-        raise ValueError('Unexpected processor memory kind ' + self.memory_module)
-      read_values, self.memory_state = memory_module(z, self.memory_state)
-      if read_values.ndim == 3:
-        # [B, N, F]
-        read_values = jnp.expand_dims(read_values, axis=1) # [B, 1, N, F]
-        if self.memory_module_args['memory_send_to'] == "all":
-          nb_nodes = read_values.shape[2]
-          read_values = jnp.tile(read_values, (1, nb_nodes, 1, 1))  # [B, N, N, F]
-        else:
-          assert self.memory_module_args['memory_send_to'] == "self", "Invalid memory-send-to value obtained."
-
-      if not self.memory_module_args['direct_output']:
-        read_values = m_1(read_values)  # [B, M, N, F]
-        read_values = (
-          read_values + jnp.expand_dims(msg_2, axis=2) + jnp.expand_dims(msg_g, axis=(1, 2))
-        )  # [B, M, N, F]
-
-      nb_new_messages = read_values.shape[1]
-      msgs = jnp.concatenate([msgs, read_values], axis=1)
-      adj_mat = jnp.pad(
-        adj_mat,
-        ((0, 0), (0, nb_new_messages), (0, 0)),
-        mode='constant',
-        constant_values=1
-      )
+    msgs, adj_mat, self.memory_state = update_using_memory(
+      z=z,
+      msgs=msgs,
+      adj_mat=adj_mat,
+      memory_state=self.memory_state,
+      memory_module=self.memory_module,
+      memory_module_args=self.memory_module_args,
+      message_dimension=msgs.shape[-1],
+      feature_dimension=z.shape[-1],
+      message_enc=m_1,
+      edge_msgs=msg_2,
+      graph_msgs=msg_g
+    )
 
     if self._msgs_mlp_sizes is not None:
       msgs = hk.nets.MLP(self._msgs_mlp_sizes)(jax.nn.relu(msgs))
@@ -691,6 +567,8 @@ class MemNetMasked(Processor):
       apply_embeddings: bool = True,
       init_func: hk.initializers.Initializer = jnp.zeros,
       use_ln: bool = False,
+      memory_module_args: dict = dict(),
+      memory_module: str = 'none',
       name: str = 'memnet') -> None:
     """Constructor.
 
@@ -723,6 +601,7 @@ class MemNetMasked(Processor):
     self._use_ln = use_ln
     # Encoding part: i.e. "I" of the paper.
     self._encodings = _position_encoding(sentence_size, embedding_size)
+    assert memory_module == "none", "Currently, we do not support external memory modules with MemNet-based processors."
 
   def __call__(
       self,
@@ -896,43 +775,57 @@ def get_processor_factory(kind: str,
           msgs_mlp_sizes=[out_size, out_size],
           use_ln=use_ln,
           use_triplets=False,
-          nb_triplet_fts=0
+          nb_triplet_fts=0,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'gat':
       processor = GAT(
           out_size=out_size,
           nb_heads=nb_heads,
           use_ln=use_ln,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'gat_full':
       processor = GATFull(
           out_size=out_size,
           nb_heads=nb_heads,
-          use_ln=use_ln
+          use_ln=use_ln,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'gatv2':
       processor = GATv2(
           out_size=out_size,
           nb_heads=nb_heads,
-          use_ln=use_ln
+          use_ln=use_ln,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'gatv2_full':
       processor = GATv2Full(
           out_size=out_size,
           nb_heads=nb_heads,
-          use_ln=use_ln
+          use_ln=use_ln,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'memnet_full':
       processor = MemNetFull(
           vocab_size=out_size,
           sentence_size=out_size,
           linear_output_size=out_size,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'memnet_masked':
       processor = MemNetMasked(
           vocab_size=out_size,
           sentence_size=out_size,
           linear_output_size=out_size,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'mpnn':
       processor = MPNN(
@@ -961,6 +854,8 @@ def get_processor_factory(kind: str,
           use_ln=use_ln,
           use_triplets=False,
           nb_triplet_fts=0,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'triplet_mpnn':
       processor = MPNN(
@@ -970,6 +865,7 @@ def get_processor_factory(kind: str,
           use_triplets=True,
           nb_triplet_fts=nb_triplet_fts,
           memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'triplet_pgn':
       processor = PGN(
@@ -978,6 +874,8 @@ def get_processor_factory(kind: str,
           use_ln=use_ln,
           use_triplets=True,
           nb_triplet_fts=nb_triplet_fts,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'triplet_pgn_mask':
       processor = PGNMask(
@@ -986,6 +884,8 @@ def get_processor_factory(kind: str,
           use_ln=use_ln,
           use_triplets=True,
           nb_triplet_fts=nb_triplet_fts,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'gpgn':
       processor = PGN(
@@ -995,6 +895,8 @@ def get_processor_factory(kind: str,
           use_triplets=False,
           nb_triplet_fts=nb_triplet_fts,
           gated=True,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'gpgn_mask':
       processor = PGNMask(
@@ -1004,6 +906,8 @@ def get_processor_factory(kind: str,
           use_triplets=False,
           nb_triplet_fts=nb_triplet_fts,
           gated=True,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'gmpnn':
       processor = MPNN(
@@ -1013,6 +917,8 @@ def get_processor_factory(kind: str,
           use_triplets=False,
           nb_triplet_fts=nb_triplet_fts,
           gated=True,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'triplet_gpgn':
       processor = PGN(
@@ -1022,6 +928,8 @@ def get_processor_factory(kind: str,
           use_triplets=True,
           nb_triplet_fts=nb_triplet_fts,
           gated=True,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'triplet_gpgn_mask':
       processor = PGNMask(
@@ -1031,6 +939,8 @@ def get_processor_factory(kind: str,
           use_triplets=True,
           nb_triplet_fts=nb_triplet_fts,
           gated=True,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     elif kind == 'triplet_gmpnn':
       processor = MPNN(
@@ -1040,6 +950,8 @@ def get_processor_factory(kind: str,
           use_triplets=True,
           nb_triplet_fts=nb_triplet_fts,
           gated=True,
+          memory_module=memory_module,
+          memory_module_args=memory_module_args,
       )
     else:
       raise ValueError('Unexpected processor kind ' + kind)

@@ -16,7 +16,7 @@
 """JAX implementation of memory modules."""
 
 import abc
-from typing import Any, Callable, List, Optional, Tuple, NamedTuple
+from typing import Any, Callable, List, Optional, Tuple, NamedTuple, Dict
 
 import chex
 import haiku as hk
@@ -1973,3 +1973,280 @@ class PriorityQueueV2_Sigmoid_atv2(MemoryModule):
             write_mask=new_write_mask,
             read_strengths=new_read_strengths,
         )
+
+
+def memory_factory(
+    memory_module: str,
+    memory_module_args: Dict[str, Any],
+    message_dimension: int,
+    feature_dimension: int,
+):
+    if memory_module == "none":
+        return None
+    if memory_module == "stack":
+        return MLPStackMemory(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+        )
+    elif memory_module == "queue":
+        return MLPQueueMemory(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+        )
+    elif memory_module == "deque":
+        return MLPDequeMemory(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+        )
+    elif memory_module == "priority_queue":
+        return PriorityQueue(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+        )
+    elif memory_module == "priority_queue_cp_max":
+        return PriorityQueue_CopyNodeFeatures(
+            output_size=feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+            push_agg_technique="max",
+            proj_output=False,
+        )
+    elif memory_module == "priority_queue_cp_weighted":
+        return PriorityQueue_CopyNodeFeatures(
+            output_size=feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+            push_agg_technique="weighted",
+            proj_output=False,
+        )
+    elif memory_module == "priority_queue_cp_max_proj":
+        return PriorityQueue_CopyNodeFeatures(
+            output_size=feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+            push_agg_technique="max",
+            proj_output=True,
+        )
+    elif memory_module == "priority_queue_cp_weighted_proj":
+        return PriorityQueue_CopyNodeFeatures(
+            output_size=feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+            push_agg_technique="weighted",
+            proj_output=True,
+        )
+    elif memory_module == "priority_queue_ph":
+        return PriorityQueue_ProperHeads(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+            message_per_head=False,
+        )
+    elif memory_module == "priority_queue_ph_mph":
+        return PriorityQueue_ProperHeads(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+            message_per_head=True,
+        )
+    elif memory_module == "priority_queue_atv2":
+        return PriorityQueue_atv2(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+        )
+    elif memory_module == "priority_queue_v1":
+        return PriorityQueueV1(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+        )
+    elif memory_module == "priority_queue_v2":
+        return PriorityQueueV2(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+        )
+    elif memory_module == "priority_queue_v2_ph":
+        return PriorityQueueV2_ProperHeads(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+            message_per_head=False,
+        )
+    elif memory_module == "priority_queue_v2_ph_mph":
+        return PriorityQueueV2_ProperHeads(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+            message_per_head=True,
+        )
+    elif memory_module == "priority_queue_v2_sv":
+        return PriorityQueueV2_single_value(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+        )
+    elif memory_module == "priority_queue_v2_sig":
+        return PriorityQueueV2_Sigmoid(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+        )
+    elif memory_module == "priority_queue_v2_sig_atv2":
+        return PriorityQueueV2_Sigmoid_atv2(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+        )
+    else:
+        raise ValueError("Unexpected processor memory kind " + memory_module)
+
+
+def update_using_memory(
+    z: _Array,
+    msgs: _Array,
+    adj_mat: _Array,
+    memory_state: MemoryState,
+    memory_module: str,
+    memory_module_args: Dict[str, Any],
+    message_dimension: int,
+    feature_dimension: int,
+    message_enc: Optional[hk.Module] = None,
+    edge_msgs: Optional[_Array] = None,
+    graph_msgs: Optional[_Array] = None,
+) -> Tuple[_Array, _Array]:
+    memory_module = memory_factory(
+        memory_module=memory_module,
+        memory_module_args=memory_module_args,
+        message_dimension=message_dimension,
+        feature_dimension=feature_dimension,
+    )
+    if memory_module is not None:
+        read_values, memory_state = memory_module(z, memory_state)
+        if read_values.ndim == 3:
+            # [B, N, F]
+            read_values = jnp.expand_dims(read_values, axis=1)  # [B, 1, N, F]
+            if memory_module_args["memory_send_to"] == "all":
+                nb_nodes = read_values.shape[2]
+                read_values = jnp.tile(read_values, (1, nb_nodes, 1, 1))  # [B, N, N, F]
+            else:
+                assert (
+                    memory_module_args["memory_send_to"] == "self"
+                ), "Invalid memory-send-to value obtained."
+
+        if not memory_module_args["direct_output"]:
+            read_values = message_enc(read_values)  # [B, M, N, F]
+            read_values = (
+                read_values
+                + jnp.expand_dims(edge_msgs, axis=2)
+                + jnp.expand_dims(graph_msgs, axis=(1, 2))
+            )  # [B, M, N, F]
+
+        nb_new_messages = read_values.shape[1]
+        msgs = jnp.concatenate([msgs, read_values], axis=1)
+        adj_mat = jnp.pad(
+            adj_mat,
+            ((0, 0), (0, nb_new_messages), (0, 0)),
+            mode="constant",
+            constant_values=1,
+        )
+    return msgs, adj_mat, memory_state
