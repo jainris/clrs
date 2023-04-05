@@ -2086,7 +2086,9 @@ class PriorityQueue_HardCoded_2(MemoryModule):
         u_pi_fts = jnp.sum(u_pi_fts, axis=1, keepdims=True)  # [B, 1, F]
         u_pi_fts = parent_proj(u_pi_fts)  # [B, 1, F']
 
-        output = jnp.zeros((batch_size, nb_nodes, u_pi_fts.shape[-1])) + u_pi_fts  # [B, N, F']
+        output = (
+            jnp.zeros((batch_size, nb_nodes, u_pi_fts.shape[-1])) + u_pi_fts
+        )  # [B, N, F']
         output = output_proj(output)
         output = output * jnp.expand_dims(u, axis=2)
 
@@ -2144,7 +2146,9 @@ class PriorityQueue_HardCoded_2_return_u(MemoryModule):
         u_pi_fts = jnp.sum(u_pi_fts, axis=1, keepdims=True)  # [B, 1, F]
         u_pi_fts = parent_proj(u_pi_fts)  # [B, 1, F']
 
-        output = jnp.zeros((batch_size, nb_nodes, u_pi_fts.shape[-1])) + u_pi_fts  # [B, N, F']
+        output = (
+            jnp.zeros((batch_size, nb_nodes, u_pi_fts.shape[-1])) + u_pi_fts
+        )  # [B, N, F']
         output = output_proj(output)
         output = output * jnp.expand_dims(u, axis=2)
 
@@ -2152,4 +2156,158 @@ class PriorityQueue_HardCoded_2_return_u(MemoryModule):
             prev_state.iteration_mask, shift=1, axis=1
         )  # [B, N]
 
-        return output, u, PriorityQueueState_Hardcoded(iteration_mask=new_iteration_mask)
+        return (
+            output,
+            u,
+            PriorityQueueState_Hardcoded(iteration_mask=new_iteration_mask),
+        )
+
+
+class PriorityQueueState_Hardcoded_2(MemoryState):
+    iteration_mask: _Array
+    pushed_values: _Array
+
+
+class PriorityQueue_HardCoded_3(MemoryModule):
+    def __init__(
+        self,
+        output_size: int,
+        embedding_size: int,
+        name: str = "pq_hardcoded",
+    ):
+        super().__init__(name=name)
+        self._output_size = output_size
+        self._embedding_size = embedding_size
+
+    def initial_state(
+        self, batch_size: int, nb_nodes: int, nb_features: int, **kwargs
+    ) -> PriorityQueueState_Hardcoded_2:
+        iteration_mask = jax.nn.one_hot(
+            [0] * batch_size,
+            num_classes=nb_nodes,
+            dtype=jnp.float32,
+        )  # [B, N]
+        pushed_values = jnp.zeros((batch_size, nb_nodes, nb_features))
+        return PriorityQueueState_Hardcoded_2(
+            iteration_mask=iteration_mask, pushed_values=pushed_values
+        )
+
+    def __call__(
+        self,
+        z: _Array,
+        us: _Array,
+        us_pi: _Array,
+        prev_state: PriorityQueueState_Hardcoded_2,
+        **kwargs
+    ) -> Tuple[_Array, PriorityQueueState_Hardcoded_2]:
+        # z.shape: [B, N, F]
+        batch_size, nb_nodes, nb_z_fts = z.shape
+        if prev_state is None:
+            prev_state = self.initial_state(
+                batch_size=batch_size,
+                nb_nodes=nb_nodes,
+                nb_features=self._embedding_size,
+            )
+
+        output_proj = hk.Linear(output_size=self._output_size)
+        parent_proj = hk.Linear(output_size=self._embedding_size)
+
+        u = us * jnp.expand_dims(prev_state.iteration_mask, axis=-1)  # [B, N, N]
+        u = jnp.sum(u, axis=1)  # [B, N]
+
+        children_mask = jnp.all(us_pi == jnp.expand_dims(u, axis=1), axis=-1)  # [B, N]
+        children = children_mask * 1.0  # [B, N]
+
+        u_fts = z * jnp.expand_dims(u, axis=2)  # [B, N, F]
+        u_fts = jnp.sum(u_fts, axis=1, keepdims=False)  # [B, F]
+        push_value = parent_proj(u_fts)  # [B, F']
+
+        new_push_values = prev_state.pushed_values
+        new_push_values += jnp.expand_dims(children, axis=2) * jnp.expand_dims(
+            push_value, axis=1
+        )  # [B, N, F']
+
+        output = output_proj(new_push_values)  # [B, N, F']
+        output = output * jnp.expand_dims(u, axis=2)  # [B, N, F']
+
+        new_iteration_mask = jnp.roll(
+            prev_state.iteration_mask, shift=1, axis=1
+        )  # [B, N]
+
+        return output, PriorityQueueState_Hardcoded_2(
+            iteration_mask=new_iteration_mask, pushed_values=new_push_values
+        )
+
+
+class PriorityQueue_HardCoded_4(MemoryModule):
+    def __init__(
+        self,
+        output_size: int,
+        embedding_size: int,
+        name: str = "pq_hardcoded",
+    ):
+        super().__init__(name=name)
+        self._output_size = output_size
+        self._embedding_size = embedding_size
+
+    def initial_state(
+        self, batch_size: int, nb_nodes: int, nb_features: int, **kwargs
+    ) -> PriorityQueueState_Hardcoded_2:
+        iteration_mask = jax.nn.one_hot(
+            [0] * batch_size,
+            num_classes=nb_nodes,
+            dtype=jnp.float32,
+        )  # [B, N]
+        pushed_values = jnp.zeros((batch_size, nb_nodes, nb_features))
+        return PriorityQueueState_Hardcoded_2(
+            iteration_mask=iteration_mask, pushed_values=pushed_values
+        )
+
+    def __call__(
+        self,
+        z: _Array,
+        us: _Array,
+        us_pi: _Array,
+        prev_state: PriorityQueueState_Hardcoded_2,
+        **kwargs
+    ) -> Tuple[_Array, PriorityQueueState_Hardcoded_2]:
+        # z.shape: [B, N, F]
+        batch_size, nb_nodes, nb_z_fts = z.shape
+        if prev_state is None:
+            prev_state = self.initial_state(
+                batch_size=batch_size,
+                nb_nodes=nb_nodes,
+                nb_features=self._embedding_size,
+            )
+
+        output_proj = hk.Linear(output_size=self._output_size)
+        push_proj = hk.Linear(output_size=self._embedding_size)
+        prev_proj = hk.Linear(output_size=self._embedding_size)
+
+        u = us * jnp.expand_dims(prev_state.iteration_mask, axis=-1)  # [B, N, N]
+        u = jnp.sum(u, axis=1)  # [B, N]
+
+        children = us_pi * jnp.expand_dims(u, axis=2)  # [B, N, N]
+        children = jnp.sum(children, axis=1)  # [B, N]
+
+        u_fts = z * jnp.expand_dims(u, axis=2)  # [B, N, F]
+        u_fts = jnp.sum(u_fts, axis=1, keepdims=False)  # [B, F]
+        push_value = push_proj(u_fts)  # [B, F']
+
+        new_push_values = (
+            jnp.expand_dims(1 - children, axis=2) * prev_state.pushed_values
+        )
+        new_push_values += jnp.expand_dims(children, axis=2) * (
+            prev_proj(prev_state.pushed_values) + jnp.expand_dims(push_value, axis=1)
+        )  # [B, N, F']
+
+        output = output_proj(new_push_values)  # [B, N, F']
+        output = output * jnp.expand_dims(u, axis=2)  # [B, N, F']
+
+        new_iteration_mask = jnp.roll(
+            prev_state.iteration_mask, shift=1, axis=1
+        )  # [B, N]
+
+        return output, PriorityQueueState_Hardcoded_2(
+            iteration_mask=new_iteration_mask, pushed_values=new_push_values
+        )

@@ -76,6 +76,7 @@ CLRS_30_ALGS = [
     'dfs',
     'dijkstra',
     'dijkstra_pq',
+    'dijkstra_pq_2',
     'find_maximum_subarray_kadane',
     'floyd_warshall',
     'graham_scan',
@@ -441,6 +442,20 @@ SPECS = types.MappingProxyType({
         'adj': (Stage.INPUT, Location.EDGE, Type.MASK),
         'us': (Stage.INPUT, Location.NODE, Type.POINTER),
         'us_pi': (Stage.INPUT, Location.NODE, Type.POINTER),
+        'pi': (Stage.OUTPUT, Location.NODE, Type.POINTER),
+        'pi_h': (Stage.HINT, Location.NODE, Type.POINTER),
+        'd': (Stage.HINT, Location.NODE, Type.SCALAR),
+        'mark': (Stage.HINT, Location.NODE, Type.MASK),
+        'in_queue': (Stage.HINT, Location.NODE, Type.MASK),
+        'u': (Stage.HINT, Location.NODE, Type.MASK_ONE)
+    },
+    'dijkstra_pq_2': {
+        'pos': (Stage.INPUT, Location.NODE, Type.SCALAR),
+        's': (Stage.INPUT, Location.NODE, Type.MASK_ONE),
+        'A': (Stage.INPUT, Location.EDGE, Type.SCALAR),
+        'adj': (Stage.INPUT, Location.EDGE, Type.MASK),
+        'us': (Stage.INPUT, Location.NODE, Type.POINTER),
+        'us_pi': (Stage.INPUT, Location.EDGE, Type.MASK),  # Actually us_children
         'pi': (Stage.OUTPUT, Location.NODE, Type.POINTER),
         'pi_h': (Stage.HINT, Location.NODE, Type.POINTER),
         'd': (Stage.HINT, Location.NODE, Type.SCALAR),

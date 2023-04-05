@@ -39,6 +39,7 @@ from clrs._src.algorithms.graphs import mst_prim
 from clrs._src.algorithms.graphs import bellman_ford
 from clrs._src.algorithms.graphs import dijkstra
 from clrs._src.algorithms.graphs import dijkstra_pq
+from clrs._src.algorithms.graphs import dijkstra_pq_2
 from clrs._src.algorithms.graphs import dag_shortest_paths
 from clrs._src.algorithms.graphs import floyd_warshall
 from clrs._src.algorithms.graphs import bipartite_matching

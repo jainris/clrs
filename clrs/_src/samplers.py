@@ -658,6 +658,7 @@ SAMPLERS = {
     'dag_shortest_paths': DAGPathSampler,
     'dijkstra': BellmanFordSampler,
     'dijkstra_pq': BellmanFordSampler,
+    'dijkstra_pq_2': BellmanFordSampler,
     'floyd_warshall': FloydWarshallSampler,
     'bipartite_matching': BipartiteSampler,
     'naive_string_matcher': MatcherSampler,

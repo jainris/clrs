@@ -1359,6 +1359,104 @@ def dijkstra_pq(A: _Array, s: int) -> _Out:
   return pi, probes
 
 
+def dijkstra_pq_2(A: _Array, s: int) -> _Out:
+  """Dijkstra's single-source shortest path (Dijkstra, 1959) with pq hints"""
+
+  chex.assert_rank(A, 2)
+  probes = probing.initialize(specs.SPECS['dijkstra_pq_2'])
+
+  A_pos = np.arange(A.shape[0])
+
+  d = np.zeros(A.shape[0])
+  mark = np.zeros(A.shape[0])
+  in_queue = np.zeros(A.shape[0])
+  pi = np.arange(A.shape[0])
+  d[s] = 0
+  in_queue[s] = 1
+  us = []
+  us_children = np.zeros_like(A)
+
+  for _ in range(A.shape[0]):
+    u = np.argsort(d + (1.0 - in_queue) * 1e9)[0]  # drop-in for extract-min
+    us.append(u)
+    if in_queue[u] == 0:
+      break
+    mark[u] = 1
+    in_queue[u] = 0
+    for v in range(A.shape[0]):
+      if A[u, v] != 0:
+        if mark[v] == 0 and (in_queue[v] == 0 or d[u] + A[u, v] < d[v]):
+          us_children[u][v] = 1
+          pi[v] = u
+          d[v] = d[u] + A[u, v]
+          in_queue[v] = 1
+
+  if len(us) < A.shape[0]:
+    us += [0] * (A.shape[0] - len(us))
+
+  us = np.array(us)
+  us_pi = (us_children != 0) * 1.0
+
+  probing.push(
+      probes,
+      specs.Stage.INPUT,
+      next_probe={
+          'pos': np.copy(A_pos) * 1.0 / A.shape[0],
+          's': probing.mask_one(s, A.shape[0]),
+          'A': np.copy(A),
+          'adj': probing.graph(np.copy(A)),
+          'us': us,
+          'us_pi': us_pi
+      })
+
+  d = np.zeros(A.shape[0])
+  mark = np.zeros(A.shape[0])
+  in_queue = np.zeros(A.shape[0])
+  pi = np.arange(A.shape[0])
+  d[s] = 0
+  in_queue[s] = 1
+
+  probing.push(
+      probes,
+      specs.Stage.HINT,
+      next_probe={
+          'pi_h': np.copy(pi),
+          'd': np.copy(d),
+          'mark': np.copy(mark),
+          'in_queue': np.copy(in_queue),
+          'u': probing.mask_one(s, A.shape[0])
+      })
+
+  for _ in range(A.shape[0]):
+    u = np.argsort(d + (1.0 - in_queue) * 1e9)[0]  # drop-in for extract-min
+    if in_queue[u] == 0:
+      break
+    mark[u] = 1
+    in_queue[u] = 0
+    for v in range(A.shape[0]):
+      if A[u, v] != 0:
+        if mark[v] == 0 and (in_queue[v] == 0 or d[u] + A[u, v] < d[v]):
+          pi[v] = u
+          d[v] = d[u] + A[u, v]
+          in_queue[v] = 1
+
+    probing.push(
+        probes,
+        specs.Stage.HINT,
+        next_probe={
+            'pi_h': np.copy(pi),
+            'd': np.copy(d),
+            'mark': np.copy(mark),
+            'in_queue': np.copy(in_queue),
+            'u': probing.mask_one(u, A.shape[0])
+        })
+
+  probing.push(probes, specs.Stage.OUTPUT, next_probe={'pi': np.copy(pi)})
+  probing.finalize(probes)
+
+  return pi, probes
+
+
 def dag_shortest_paths(A: _Array, s: int) -> _Out:
   """DAG shortest path."""
 
