@@ -16,7 +16,7 @@
 """JAX implementation of memory modules."""
 
 import abc
-from typing import Any, Callable, List, Optional, Tuple, NamedTuple, Dict
+from typing import Any, Callable, List, Optional, Tuple, NamedTuple, Dict, Union
 
 import chex
 import haiku as hk
@@ -2206,7 +2206,7 @@ def update_using_memory(
     msgs: _Array,
     adj_mat: _Array,
     memory_state: MemoryState,
-    memory_module: str,
+    memory_module: Union[str, MemoryModule],
     memory_module_args: Dict[str, Any],
     message_dimension: int,
     feature_dimension: int,
@@ -2214,12 +2214,13 @@ def update_using_memory(
     edge_msgs: Optional[_Array] = None,
     graph_msgs: Optional[_Array] = None,
 ) -> Tuple[_Array, _Array]:
-    memory_module = memory_factory(
-        memory_module=memory_module,
-        memory_module_args=memory_module_args,
-        message_dimension=message_dimension,
-        feature_dimension=feature_dimension,
-    )
+    if isinstance(memory_module, str):
+        memory_module = memory_factory(
+            memory_module=memory_module,
+            memory_module_args=memory_module_args,
+            message_dimension=message_dimension,
+            feature_dimension=feature_dimension,
+        )
     if memory_module is not None:
         read_values, memory_state = memory_module(z, memory_state)
         if read_values.ndim == 3:
@@ -2249,4 +2250,4 @@ def update_using_memory(
             mode="constant",
             constant_values=1,
         )
-    return msgs, adj_mat, memory_state
+    return msgs, adj_mat, memory_state, memory_module

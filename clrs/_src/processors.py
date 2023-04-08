@@ -161,7 +161,7 @@ class GAT(Processor):
       msgs = jnp.expand_dims(coefs, axis=-1) * jnp.expand_dims(values, axis=2)  # [B, H, N, N, F]
       msgs = jnp.transpose(msgs, (0, 3, 2, 1, 4))  # [B, N, N, H, F]
       msgs = jnp.reshape(msgs, msgs.shape[:-2] + (self.out_size,))  # [B, N, N, H*F]
-      msgs, adj_mat, self.memory_state = update_using_memory(
+      msgs, adj_mat, self.memory_state, self.memory_module = update_using_memory(
         z=z,
         msgs=msgs,
         adj_mat=adj_mat,
@@ -315,7 +315,7 @@ class GATv2(Processor):
       msgs = jnp.expand_dims(coefs, axis=-1) * jnp.expand_dims(values, axis=2)  # [B, H, N, N, F]
       msgs = jnp.transpose(msgs, (0, 3, 2, 1, 4))  # [B, N, N, H, F]
       msgs = jnp.reshape(msgs, msgs.shape[:-2] + (self.out_size,))  # [B, N, N, H*F]
-      msgs, adj_mat, self.memory_state = update_using_memory(
+      msgs, adj_mat, self.memory_state, self.memory_module = update_using_memory(
         z=z,
         msgs=msgs,
         adj_mat=adj_mat,
@@ -465,7 +465,7 @@ class PGN(Processor):
         jnp.expand_dims(msg_1, axis=1) + jnp.expand_dims(msg_2, axis=2) +
         msg_e + jnp.expand_dims(msg_g, axis=(1, 2)))
 
-    msgs, adj_mat, self.memory_state = update_using_memory(
+    msgs, adj_mat, self.memory_state, self.memory_module = update_using_memory(
       z=z,
       msgs=msgs,
       adj_mat=adj_mat,
