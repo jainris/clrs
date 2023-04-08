@@ -17,6 +17,7 @@
 
 import abc
 from typing import Any, Callable, List, Optional, Tuple, NamedTuple, Dict
+import os
 
 import chex
 import haiku as hk
@@ -1666,6 +1667,7 @@ class PriorityQueueV2_Sigmoid(MemoryModule):
         nb_heads: int,
         aggregation_technique: str = "max",
         name: str = "neural_priority_queue_v2",
+        saver= None,
     ):
         super().__init__(name=name)
         self._output_size = output_size
@@ -1673,6 +1675,7 @@ class PriorityQueueV2_Sigmoid(MemoryModule):
         self._memory_size = memory_size
         self.nb_heads = nb_heads
         self.aggregation_technique = aggregation_technique
+        self.saver = saver
 
     def initial_state(self, batch_size: int, **kwargs) -> PriorityQueueStateV2:
         memory_values = jnp.zeros((batch_size, self._memory_size, self._embedding_size))
@@ -1692,6 +1695,7 @@ class PriorityQueueV2_Sigmoid(MemoryModule):
         self, z: _Array, prev_state: PriorityQueueStateV2, **kwargs
     ) -> Tuple[_Array, PriorityQueueStateV2]:
         # z.shape: [B, N, F]
+        self.saver.save_file_per_itr("z", z)
         batch_size, nb_nodes, nb_z_fts = z.shape
         if prev_state is None:
             prev_state = self.initial_state(batch_size=batch_size)
@@ -1709,9 +1713,14 @@ class PriorityQueueV2_Sigmoid(MemoryModule):
         pop_strengths = jax.nn.sigmoid(pop_strengths)  # [B, N, 1]
         node_wise_pop_strengths = pop_strengths  # [B, N, 1]
 
+        self.saver.save_file_per_itr("push_strengths", push_strengths)
+        self.saver.save_file_per_itr("pop_strengths", pop_strengths)
+
         write_values = value_proj(z)  # [B, N, F']
+        self.saver.save_file_per_itr("write_values_before_sum", write_values)
         write_values = jnp.sum(write_values, axis=1)  # [B, F']
         write_values = jnp.tanh(write_values)  # [B, F']
+        self.saver.save_file_per_itr("write_values", write_values)
 
         a_1 = hk.Linear(self.nb_heads)
         a_2 = hk.Linear(self.nb_heads)
@@ -1742,6 +1751,7 @@ class PriorityQueueV2_Sigmoid(MemoryModule):
         else:
             # Single-head
             coefs = jnp.squeeze(coefs, axis=3)  # [B, N, S]
+        self.saver.save_file_per_itr("coefs", coefs)
 
         new_read_strengths = prev_state.read_strengths
         # Calculating the proportion of each element popped
@@ -1777,9 +1787,13 @@ class PriorityQueueV2_Sigmoid(MemoryModule):
             prev_state.read_strengths, total_pop_requested
         )  # [B, S]
         output_coefs = pop_proportions * jnp.expand_dims(pop_given, axis=1)  # [B, N, S]
+
+        self.saver.save_file_per_itr("output_coefs", output_coefs)
+
         output = jnp.expand_dims(output_coefs, axis=3) * jnp.expand_dims(
             prev_state.memory_values, axis=1
         )  # [B, N, S, F']
+        self.saver.save_file_per_itr("output_coefs", output_coefs)
         output = jnp.sum(output, axis=2)  # [B, N, F']
         new_read_strengths -= pop_given
         output = output_proj(output)
@@ -1798,6 +1812,9 @@ class PriorityQueueV2_Sigmoid(MemoryModule):
         new_write_mask = jax.nn.one_hot(
             next_write_places, num_classes=self._memory_size
         )  # [B, S]
+        self.saver.save_file_per_itr("pq_memory_values", new_memory_values)
+        self.saver.save_file_per_itr("pq_write_mask", new_write_mask)
+        self.saver.save_file_per_itr("pq_read_strengths", new_read_strengths)
 
         return output, PriorityQueueStateV2(
             memory_values=new_memory_values,
@@ -1980,6 +1997,7 @@ def memory_factory(
     memory_module_args: Dict[str, Any],
     message_dimension: int,
     feature_dimension: int,
+    saver,
 ):
     if memory_module == "none":
         return None
@@ -2184,6 +2202,7 @@ def memory_factory(
             memory_size=memory_module_args["memory_size"],
             nb_heads=memory_module_args["nb_heads"],
             aggregation_technique=memory_module_args["aggregation_technique"],
+            saver=saver
         )
     elif memory_module == "priority_queue_v2_sig_atv2":
         return PriorityQueueV2_Sigmoid_atv2(
@@ -2213,12 +2232,14 @@ def update_using_memory(
     message_enc: Optional[hk.Module] = None,
     edge_msgs: Optional[_Array] = None,
     graph_msgs: Optional[_Array] = None,
+    saver= None,
 ) -> Tuple[_Array, _Array]:
     memory_module = memory_factory(
         memory_module=memory_module,
         memory_module_args=memory_module_args,
         message_dimension=message_dimension,
         feature_dimension=feature_dimension,
+        saver=saver,
     )
     if memory_module is not None:
         read_values, memory_state = memory_module(z, memory_state)
@@ -2250,3 +2271,24 @@ def update_using_memory(
             constant_values=1,
         )
     return msgs, adj_mat, memory_state
+
+
+class Saver:
+    def __init__(self, save_folder: str, start_itr: int = 0) -> None:
+        self.save_folder = save_folder
+        self.itr = start_itr
+
+    def next_itr(self) -> None:
+        self.itr += 1
+
+    def save_file_per_itr(self, object_name: str, object: Any) -> None:
+        save_path = os.path.join(self.save_folder, object_name)
+        os.makedirs(save_path, exist_ok=True)
+        save_path = os.path.join(save_path, "{}".format(self.itr))
+        with open(save_path, "wb") as f:
+            jnp.save(f, object)
+
+    def save_file_once(self, object_name: str, object: Any) -> None:
+        save_path = os.path.join(self.save_folder, object_name)
+        with open(save_path, "wb") as f:
+            jnp.save(f, object)

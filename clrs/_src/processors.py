@@ -25,6 +25,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from clrs._src.memory import update_using_memory
+from clrs._src.memory import Saver
 
 
 _Array = chex.Array
@@ -417,6 +418,7 @@ class PGN(Processor):
     self.memory_module = memory_module
     self.memory_module_args = memory_module_args
     self.memory_state = None
+    self.saver = Saver("/home/boss/part3/clrs/dij_sample", start_itr=0)
 
 
   def __call__(
@@ -476,7 +478,8 @@ class PGN(Processor):
       feature_dimension=z.shape[-1],
       message_enc=m_1,
       edge_msgs=msg_2,
-      graph_msgs=msg_g
+      graph_msgs=msg_g,
+      saver=self.saver,
     )
 
     if self._msgs_mlp_sizes is not None:
@@ -484,6 +487,8 @@ class PGN(Processor):
 
     if self.mid_act is not None:
       msgs = self.mid_act(msgs)
+
+    self.saver.save_file_per_itr("msgs", msgs)
 
     if self.reduction == jnp.mean:
       msgs = jnp.sum(msgs * jnp.expand_dims(adj_mat, -1), axis=1)
@@ -498,6 +503,9 @@ class PGN(Processor):
 
     h_1 = o1(z)
     h_2 = o2(msgs)
+
+    self.saver.save_file_per_itr("h_1", h_1)
+    self.saver.save_file_per_itr("h_2", h_2)
 
     ret = h_1 + h_2
 
@@ -514,6 +522,8 @@ class PGN(Processor):
       gate3 = hk.Linear(self.out_size, b_init=hk.initializers.Constant(-3))
       gate = jax.nn.sigmoid(gate3(jax.nn.relu(gate1(z) + gate2(msgs))))
       ret = ret * gate + hidden * (1-gate)
+
+    self.saver.next_itr()
 
     return ret, tri_msgs
 

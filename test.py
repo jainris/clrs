@@ -29,6 +29,9 @@ import numpy as np
 import requests
 import tensorflow as tf
 
+import jax.numpy as jnp
+import pickle
+
 # Trying to limit cpu thread usage
 # https://github.com/google/jax/issues/743
 os.environ["XLA_FLAGS"] = ("--xla_cpu_multi_thread_eigen=true "
@@ -174,6 +177,12 @@ def unpack(v):
     return v
 
 
+def save_file_once(save_folder, object_name: str, object: Any) -> None:
+    save_path = os.path.join(save_folder, object_name)
+    with open(save_path, "wb") as f:
+        jnp.save(f, object)
+
+
 def _iterate_sampler(sampler, batch_size):
   while True:
     yield sampler.next(batch_size)
@@ -285,16 +294,23 @@ def collect_and_eval(sampler, predict_fn, sample_count, rng_key, extras):
   processed_samples = 0
   preds = []
   outputs = []
-  while processed_samples < sample_count:
-    feedback = next(sampler)
-    batch_size = feedback.outputs[0].data.shape[0]
-    outputs.append(feedback.outputs)
-    new_rng_key, rng_key = jax.random.split(rng_key)
-    cur_preds, _ = predict_fn(new_rng_key, feedback.features)
-    preds.append(cur_preds)
-    processed_samples += batch_size
+  # while processed_samples < sample_count:
+  # Only taking one batch for this qualitative analysis
+  feedback = next(sampler)
+  batch_size = feedback.outputs[0].data.shape[0]
+  outputs.append(feedback.outputs)
+  new_rng_key, rng_key = jax.random.split(rng_key)
+  cur_preds, _ = predict_fn(new_rng_key, feedback.features)
+  preds.append(cur_preds)
+  processed_samples += batch_size
   outputs = _concat(outputs, axis=0)
   preds = _concat(preds, axis=0)
+  with open("/home/boss/part3/clrs/dij_sample/y_true", "wb") as f:
+    pickle.dump(outputs, f)
+  with open("/home/boss/part3/clrs/dij_sample/y_pred", "wb") as f:
+    pickle.dump(preds, f)
+  with open("/home/boss/part3/clrs/dij_sample/x", "wb") as f:
+    pickle.dump(feedback.features, f)
   out = clrs.evaluate(outputs, preds)
   if extras:
     out.update(extras)
@@ -478,33 +494,33 @@ def main(unused_argv):
   else:
     train_model.init(all_features, FLAGS.seed + 1)
 
-  logging.info('Restoring Last model from checkpoint...')
-  eval_model.restore_model('last.pkl', only_load_processor=False)
-  for algo_idx in range(len(train_samplers)):
-    common_extras = {'examples_seen': 32,
-                     'step': 1,
-                     'algorithm': FLAGS.algorithms[algo_idx]}
+  # logging.info('Restoring Last model from checkpoint...')
+  # eval_model.restore_model('last.pkl', only_load_processor=False)
+  # for algo_idx in range(len(train_samplers)):
+  #   common_extras = {'examples_seen': 32,
+  #                    'step': 1,
+  #                    'algorithm': FLAGS.algorithms[algo_idx]}
 
-    new_rng_key, rng_key = jax.random.split(rng_key)
-    test_stats = collect_and_eval(
-        test_samplers[algo_idx],
-        functools.partial(eval_model.predict, algorithm_index=algo_idx),
-        test_sample_counts[algo_idx],
-        new_rng_key,
-        extras=common_extras)
-    logging.info('(test) algo %s : %s', FLAGS.algorithms[algo_idx], test_stats)
-
-  logging.info('Restoring best model from checkpoint...')
+  #   new_rng_key, rng_key = jax.random.split(rng_key)
+  #   test_stats = collect_and_eval(
+  #       test_samplers[algo_idx],
+  #       functools.partial(eval_model.predict, algorithm_index=algo_idx),
+  #       test_sample_counts[algo_idx],
+  #       new_rng_key,
+  #       extras=common_extras)
+  #   logging.info('(test) algo %s : %s', FLAGS.algorithms[algo_idx], test_stats)
+  logging.info('Restoring  best model from checkpoint...')
   eval_model.restore_model('best.pkl', only_load_processor=False)
 
   for algo_idx in range(len(train_samplers)):
     common_extras = {'examples_seen': 32,
-                     'step': 1,
-                     'algorithm': FLAGS.algorithms[algo_idx]}
+                    'step': 1,
+                    'algorithm': FLAGS.algorithms[algo_idx]}
 
     new_rng_key, rng_key = jax.random.split(rng_key)
     test_stats = collect_and_eval(
-        test_samplers[algo_idx],
+        # test_samplers[algo_idx],
+        train_samplers[algo_idx],
         functools.partial(eval_model.predict, algorithm_index=algo_idx),
         test_sample_counts[algo_idx],
         new_rng_key,
@@ -515,4 +531,5 @@ def main(unused_argv):
 
 
 if __name__ == '__main__':
-  app.run(main)
+  with jax.disable_jit():
+    app.run(main)
