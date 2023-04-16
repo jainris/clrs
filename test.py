@@ -127,7 +127,7 @@ flags.DEFINE_enum('processor_memory', 'none',
                    'priority_queue_cp_max', 'priority_queue_cp_max_proj',
                    'priority_queue_cp_weighted', 'priority_queue_cp_weighted_proj',
                    'priority_queue_atv2', 'priority_queue_v2_sig_atv2',
-                   'priority_queue_v2_sig_ph'],
+                   'priority_queue_v2_sig_ph', 'priority_queue_v2_sig_ph_mph'],
                   'Which memory module to use with the processor.')
 flags.DEFINE_integer('pmem_size', 20, 'Max size of memory.')
 flags.DEFINE_integer('pmem_embedding_size', None, 'Embedding size of memory module.')

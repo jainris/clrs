@@ -2371,6 +2371,19 @@ def memory_factory(
             nb_heads=memory_module_args["nb_heads"],
             aggregation_technique=memory_module_args["aggregation_technique"],
         )
+    elif memory_module == "priority_queue_v2_sig_ph_mph":
+        return PriorityQueueV2_Sigmoid_ProperHeads(
+            output_size=message_dimension
+            if memory_module_args["direct_output"]
+            else feature_dimension,
+            embedding_size=feature_dimension
+            if memory_module_args["embedding_size"] is None
+            else memory_module_args["embedding_size"],
+            memory_size=memory_module_args["memory_size"],
+            nb_heads=memory_module_args["nb_heads"],
+            aggregation_technique=memory_module_args["aggregation_technique"],
+            message_per_head=True,
+        )
     else:
         raise ValueError("Unexpected processor memory kind " + memory_module)
 
