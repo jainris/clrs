@@ -43,6 +43,7 @@ from clrs._src.memory import PriorityQueue_HardCoded_2
 from clrs._src.memory import PriorityQueue_HardCoded_2_delay
 from clrs._src.memory import PriorityQueue_HardCoded_2_return_u
 from clrs._src.memory import PriorityQueue_HardCoded_3
+from clrs._src.memory import PriorityQueue_HardCoded_3_return_u
 from clrs._src.memory import PriorityQueue_HardCoded_3_delay
 from clrs._src.memory import PriorityQueue_HardCoded_4
 
@@ -776,9 +777,14 @@ class PGN_pq_hardcoded(Processor):
         output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
         embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
       )
+    elif self.memory_module == 'priority_queue_hardcoded_3_return_u':
+      memory_module = PriorityQueue_HardCoded_3_return_u(
+        output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
+        embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
+      )
     else:
       raise ValueError('Unexpected processor memory kind ' + self.memory_module)
-    if self.memory_module == 'priority_queue_hardcoded_2_return_u':
+    if self.memory_module in ['priority_queue_hardcoded_2_return_u', 'priority_queue_hardcoded_3_return_u']:
       read_values, mem_adj_mat, self.memory_state = memory_module(z, us, us_pi, self.memory_state)
     else:
       read_values, self.memory_state = memory_module(z, us, us_pi, self.memory_state)
