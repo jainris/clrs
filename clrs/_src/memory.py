@@ -2071,7 +2071,7 @@ class PriorityQueue_HardCoded_delay(MemoryModule):
         # z.shape: [B, N, F]
         batch_size, nb_nodes, nb_z_fts = z.shape
         if prev_state is None:
-            prev_state = self.initial_state(batch_size=batch_size, nb_nodes=nb_nodes)
+            next_state = self.initial_state(batch_size=batch_size, nb_nodes=nb_nodes)
             output = jnp.zeros((batch_size, nb_nodes, self._output_size))
             return output, next_state
 
