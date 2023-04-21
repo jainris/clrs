@@ -39,6 +39,7 @@ from clrs._src.memory import PriorityQueueV2_Sigmoid
 from clrs._src.memory import PriorityQueueV2_Sigmoid_atv2
 from clrs._src.memory import PriorityQueue_HardCoded
 from clrs._src.memory import PriorityQueue_HardCoded_2
+from clrs._src.memory import PriorityQueue_HardCoded_2_delay
 from clrs._src.memory import PriorityQueue_HardCoded_2_return_u
 from clrs._src.memory import PriorityQueue_HardCoded_3
 from clrs._src.memory import PriorityQueue_HardCoded_4
@@ -755,6 +756,11 @@ class PGN_pq_hardcoded(Processor):
       )
     elif self.memory_module == 'priority_queue_hardcoded_4':
       memory_module = PriorityQueue_HardCoded_4(
+        output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
+        embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
+      )
+    elif self.memory_module == 'priority_queue_hardcoded_2_delay':
+      memory_module = PriorityQueue_HardCoded_2_delay(
         output_size=msgs.shape[-1] if self.memory_module_args['direct_output'] else z.shape[-1],
         embedding_size=z.shape[-1] if self.memory_module_args['embedding_size'] is None else self.memory_module_args['embedding_size'],
       )
