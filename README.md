@@ -1,3 +1,47 @@
+# Neural Priority Queues for Graph Neural Networks (GNNs)
+
+This code builds upon the code base for the CLRS algorithmic reasoning benchmark.
+We include their original README as below, which includes the relevant
+installation instructions.
+
+The code for the memory modules is included in the file `clrs/_src/memory.py`.
+Class `PriorityQueueV2_Sigmoid` is the main implementation of NPQ as described
+in Section 5 of the paper. We also include the code for the variants mentioned
+in the paper: `PriorityQueue` corresponds to NPQ-P and
+`PriorityQueueV1` corresponds to NPQ-P-SV. For SA variants, we include
+`memory_send_to` option in `update_using_memory` function to send messages to
+all nodes.
+
+`clrs/_src/processors.py` has been appropriately changed to allow use of these
+memory modules with the various processors implemented in the benchmark.
+
+`run.py` includes code to train and save the models (along with the tests), and
+`test.py` includes code to run tests on the saved models. Below we include sample
+commands to run the different modules:
+
+NPQ_M on Dijkstra trained on graphs with 16 nodes (default CLRS length) and tested on graphs with 128 nodes
+```shell
+python run.py --dataset_path ./dataset --checkpoint_path ./checkpoints/dij_npq_m_seed_7 --processor_type mpnn --algorithms dijkstra --processor_memory priority_queue_v2 --pmem_size 128 --pmem_aggregation_technique max --train_lengths -1 --test_length 128 --grad_clip_max_norm 1.0 --seed 7
+```
+
+NPQ_M-P on Dijkstra trained on graphs with 16 nodes (default CLRS length) and tested on graphs with 128 nodes
+```shell
+python run.py --dataset_path ./dataset --checkpoint_path ./checkpoints/dij_npq_m-p_seed_7 --processor_type mpnn --algorithms dijkstra --processor_memory priority_queue --pmem_size 128 --pmem_aggregation_technique max --train_lengths -1 --test_length 128 --grad_clip_max_norm 1.0 --seed 7
+```
+
+NPQ_W-P-SV on Dijkstra trained on graphs with 16 nodes (default CLRS length) and tested on graphs with 128 nodes
+```shell
+python run.py --dataset_path ./dataset --checkpoint_path ./checkpoints/dij_npq_m-p-sv_seed_7 --processor_type mpnn --algorithms dijkstra --processor_memory priority_queue_v1 --pmem_size 128 --pmem_aggregation_technique weighted --train_lengths -1 --test_length 128 --grad_clip_max_norm 1.0 --seed 7
+```
+
+NPQ_W-P-SA on Dijkstra trained on graphs with 16 nodes (default CLRS length) and tested on graphs with 128 nodes
+```shell
+python run.py --dataset_path ./dataset --checkpoint_path ./checkpoints/dij_npq_m-p-sa_seed_7 --processor_type mpnn --algorithms dijkstra --processor_memory priority_queue --pmem_size 128 --pmem_aggregation_technique weighted --train_lengths -1 --test_length 128 --grad_clip_max_norm 1.0 --memory_send_to all --seed 7
+```
+
+------
+------
+
 # The CLRS Algorithmic Reasoning Benchmark
 
 Learning representations of algorithms is an emerging area of machine learning,
